@@ -19,7 +19,6 @@ dist/
 
 # Large or regenerable data
 data/attack/*.json
-data/attack/VERSION
 reports/*.pdf
 reports/*.html
 reports/inbox/

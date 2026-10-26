@@ -54,7 +54,7 @@ def run_ingest(
 
     # Load everything local first, so a missing file fails before any tokens are spent.
     doc = load_source(path)
-    attack = attack or AttackIndex(settings.attack_bundle)
+    attack = attack or AttackIndex(*settings.attack_bundles())
     allowlist = Allowlist.load(settings.allowlist_file)
     prompt = load_prompt("collector")
 
@@ -73,7 +73,10 @@ def run_ingest(
         model=settings.extract_model,
     )
     tracer.record(
-        stage="ingest", step="load", outcome="ok", detail=f"{doc.media_type}, {len(doc.pages)} pp"
+        stage="ingest",
+        step="load",
+        outcome="ok",
+        detail=f"{doc.media_type}, {len(doc.pages)} pp; ATT&CK: {attack.description}",
     )
 
     chunks = collect(doc.text, client=client, tracer=tracer, settings=settings, prompt=prompt)

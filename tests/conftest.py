@@ -119,13 +119,16 @@ def settings(tmp_path) -> Settings:
         _env_file=None,
         out_dir=tmp_path / "out",
         attack_bundle=FIXTURES / "attack-mini.json",
+        attack_mobile_bundle=FIXTURES / "attack-mobile-v20-subset-aa23-320a.json",
         allowlist_file=ROOT / "data" / "allowlist.txt",
     )
 
 
 @pytest.fixture(scope="session")
 def attack_index() -> AttackIndex:
-    return AttackIndex(FIXTURES / "attack-mini.json")
+    return AttackIndex(
+        FIXTURES / "attack-mini.json", FIXTURES / "attack-mobile-v20-subset-aa23-320a.json"
+    )
 
 
 @pytest.fixture(scope="session")

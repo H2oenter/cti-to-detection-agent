@@ -17,7 +17,8 @@ SOURCE_PAGES = [
     """Fixture Spider (also known as Octo Fixture and UNC0000) used MFA fatigue (T1621)
 against help desks. The actors called employees posing as IT staff [T1566.004].
 They installed remote access tools such as AnyDesk. They also ran PowerShell (T1086).
-The actors exploited CVE-2023-4966 in some intrusions.""",
+The actors exploited CVE-2023-4966 in some intrusions.
+Smishing [T1660] and SIM swapping (T1451) came first.""",
     """C2 traffic went to hxxps://update-portal-fixture[.]net/login and 198.51.101[.]7.
 The loader hash was 3F786850E387550FDAB836ED7E6DC881DE23001B (SHA-1).
 SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
@@ -257,3 +258,18 @@ def test_invented_value_with_a_real_quote_is_rejected(attack_index, allowlist):
     )
     result = validate([extraction], SourceIndex([INJECTED_PAGE]), attack_index, allowlist)
     assert [r.reason for r in result.rejected] == ["value_not_in_quote"]
+
+
+def test_mobile_technique_accepted_with_coverage_warning(attack_index, allowlist):
+    result = run(attack_index, allowlist, techniques=[tech("T1660", "Smishing [T1660]")])
+    [accepted] = result.accepted
+    assert accepted.evidence_kind == "explicit"
+    assert accepted.warnings == [
+        "T1660 is a Mobile ATT&CK technique: Sentinel and Defender see little of what "
+        "happens on phones, so expect limited or no detection coverage"
+    ]
+
+
+def test_unknown_technique_names_the_loaded_matrices(attack_index, allowlist):
+    result = run(attack_index, allowlist, techniques=[tech("T9999", "used MFA fatigue (T1621)")])
+    assert "enterprise-attack, mobile-attack" in result.rejected[0].detail

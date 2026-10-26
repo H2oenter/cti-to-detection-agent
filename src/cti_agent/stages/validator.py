@@ -69,6 +69,11 @@ PLACEHOLDER_TOKENS = {
     "organisationname", "clientname", "customername",
 }  # fmt: skip
 
+MOBILE_WARNING = (
+    "{attack_id} is a Mobile ATT&CK technique: Sentinel and Defender see little of what "
+    "happens on phones, so expect limited or no detection coverage"
+)
+
 # Phrasing addressed to a model rather than to a human reader. Real CTI evidence never says this.
 INJECTION_RE = re.compile(
     r"\b(?:ignore|disregard|forget)\b.{0,30}\b(?:previous|prior|above|earlier|all)\b.{0,20}"
@@ -231,7 +236,7 @@ class _Validator:
         if info is None:
             raise _Reject(
                 "unknown_technique",
-                f"{attack_id} is not in the local ATT&CK bundle ({self.attack.domain})",
+                f"{attack_id} is not in the loaded ATT&CK matrices ({self.attack.description})",
             )
         page = self._quote_page(tech.evidence.quote)
         self._not_injected(tech.evidence.quote)
@@ -241,6 +246,8 @@ class _Validator:
             warnings.append(f"{attack_id} is revoked in ATT&CK{replacement}")
         if info.deprecated:
             warnings.append(f"{attack_id} is deprecated in ATT&CK")
+        if info.domain == "mobile-attack":
+            warnings.append(MOBILE_WARNING.format(attack_id=attack_id))
         kind = "explicit" if attack_id in match_key(tech.evidence.quote).upper() else "inferred"
         return tech.model_copy(update={"attack_id": attack_id}), kind, page, warnings
 

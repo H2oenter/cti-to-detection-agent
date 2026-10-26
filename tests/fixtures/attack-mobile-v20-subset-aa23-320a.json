@@ -1,0 +1,62 @@
+{
+ "type": "bundle",
+ "id": "bundle--4f080a08-f1bd-4078-b725-6bdaf4c1314d",
+ "objects": [
+  {
+   "modified": "2025-02-12T16:26:38.632Z",
+   "name": "SIM Card Swap",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-mobile-attack",
+     "phase_name": "initial-access"
+    }
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "mobile-attack"
+   ],
+   "x_mitre_is_subtechnique": false,
+   "x_mitre_version": "2.0",
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--a64a820a-cb21-471f-920c-506a2ff04fa5",
+   "created": "2017-10-25T14:48:20.329Z",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1451",
+     "external_id": "T1451"
+    }
+   ]
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--defc1257-4db1-4fb3-8ef5-bb77f63146df",
+   "created": "2023-09-21T19:35:15.552Z",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1660",
+     "external_id": "T1660"
+    }
+   ],
+   "modified": "2026-05-12T15:12:00.722Z",
+   "name": "Phishing",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-mobile-attack",
+     "phase_name": "initial-access"
+    }
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "mobile-attack"
+   ],
+   "x_mitre_is_subtechnique": false,
+   "x_mitre_version": "1.2"
+  }
+ ]
+}

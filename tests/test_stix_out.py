@@ -111,3 +111,15 @@ def test_empty_run_still_makes_a_valid_bundle(attack_index):
     stix2.parse(bundle.serialize(), allow_custom=True)
     report = next(o for o in bundle.objects if o["type"] == "report")
     assert report["name"] == "Untitled report"
+
+
+def test_mobile_attack_pattern_uses_the_mobile_kill_chain(attack_index):
+    sim_swap = accepted(
+        ExtractedTechnique(attack_id="T1451", behaviour="SIM swap", evidence=Evidence(quote="q")),
+        "technique",
+    )
+    bundle = build_bundle(ValidationResult(accepted=[sim_swap]), provenance(), "t", attack_index)
+    ap = next(o for o in bundle.objects if o["type"] == "attack-pattern")
+    assert ap["name"] == "SIM Card Swap"
+    assert ap["kill_chain_phases"][0]["kill_chain_name"] == "mitre-mobile-attack"
+    assert ap["x_cti_agent_attack_domain"] == "mobile-attack"

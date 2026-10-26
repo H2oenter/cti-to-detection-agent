@@ -17,6 +17,9 @@ def cli_env(tmp_path, monkeypatch):
     monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setenv("OUT_DIR", str(tmp_path / "out"))
     monkeypatch.setenv("ATTACK_BUNDLE", str(FIXTURES / "attack-mini.json"))
+    monkeypatch.setenv(
+        "ATTACK_MOBILE_BUNDLE", str(FIXTURES / "attack-mobile-v20-subset-aa23-320a.json")
+    )
     monkeypatch.setenv("ALLOWLIST_FILE", str(ROOT / "data" / "allowlist.txt"))
     return tmp_path
 

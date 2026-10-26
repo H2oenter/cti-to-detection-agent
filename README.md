@@ -45,7 +45,7 @@ py -3.12 -m venv .venv            # or: python3.12 -m venv .venv
 .venv/Scripts/activate            # or: source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env              # then add ANTHROPIC_API_KEY
-python scripts/fetch_attack.py    # one-off download of the ATT&CK bundle
+python scripts/fetch_attack.py    # one-off: ATT&CK Enterprise + Mobile v20, SHA-256 pinned
 pytest
 
 cti-agent ingest reports/aa23-320a.pdf --tlp CLEAR   # stages 1-3, calls the model

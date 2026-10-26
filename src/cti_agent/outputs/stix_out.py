@@ -146,8 +146,10 @@ class _Builder:
         extra = {}
         if info and info.tactics:
             extra["kill_chain_phases"] = [
-                {"kill_chain_name": "mitre-attack", "phase_name": t} for t in info.tactics
+                {"kill_chain_name": info.kill_chain, "phase_name": t} for t in info.tactics
             ]
+        if info:
+            extra["x_cti_agent_attack_domain"] = info.domain
         return stix2.AttackPattern(
             id=self._id("attack-pattern", item.attack_id),
             name=info.name if info else item.attack_id,

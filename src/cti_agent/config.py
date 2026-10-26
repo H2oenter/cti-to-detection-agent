@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_PRICES))
 
     attack_bundle: Path = Path("data/attack/enterprise-attack.json")
+    attack_mobile_bundle: Path | None = Path("data/attack/mobile-attack.json")
     allowlist_file: Path = Path("data/allowlist.txt")
     rules_file: Path = Path("data/my_rules.sample.csv")
     out_dir: Path = Path("out")
@@ -53,6 +54,13 @@ class Settings(BaseSettings):
     @property
     def db_path(self) -> Path:
         return self.out_dir / "cti_agent.db"
+
+    def attack_bundles(self) -> list[Path]:
+        """Enterprise is required; Mobile is used once it has been downloaded."""
+        bundles = [self.attack_bundle]
+        if self.attack_mobile_bundle and self.attack_mobile_bundle.exists():
+            bundles.append(self.attack_mobile_bundle)
+        return bundles
 
     def estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float | None:
         price = self.model_prices.get(model)

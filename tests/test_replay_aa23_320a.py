@@ -23,7 +23,10 @@ def result(tmp_path_factory):
         out_dir=tmp_path_factory.mktemp("out"),
         allowlist_file=ROOT / "data" / "allowlist.txt",
     )
-    attack = AttackIndex(FIXTURES / "attack-v20-subset-aa23-320a.json")
+    attack = AttackIndex(
+        FIXTURES / "attack-v20-subset-aa23-320a.json",
+        FIXTURES / "attack-mobile-v20-subset-aa23-320a.json",
+    )
     return run_ingest(REPORT, "CLEAR", settings, ReplayClient(RECORDED), attack=attack)
 
 
@@ -57,10 +60,17 @@ def test_placeholder_domains_do_not_become_indicators(result):
 
 def test_techniques(result):
     accepted = {a.item.attack_id for a in by_type(result, "technique")}
-    assert len(accepted) == 39
+    assert len(accepted) == 41
     assert {"T1621", "T1566.004", "T1219", "T1486", "T1567.002"} <= accepted
-    # Mobile ATT&CK IDs the advisory cites; the Enterprise bundle doesn't have them.
-    assert rejected(result, "unknown_technique", "attack_id") == ["T1451", "T1660"]
+    assert rejected(result, "unknown_technique", "attack_id") == []
+
+
+def test_mobile_techniques_accepted_with_coverage_warning(result):
+    mobile = {a.item.attack_id: a for a in by_type(result, "technique")
+              if a.item.attack_id in ("T1660", "T1451")}  # fmt: skip
+    assert sorted(mobile) == ["T1451", "T1660"]  # smishing and SIM swap
+    for item in mobile.values():
+        assert any("Mobile ATT&CK" in w and "limited" in w for w in item.warnings)
 
 
 def test_revoked_technique_carries_its_replacement(result):
