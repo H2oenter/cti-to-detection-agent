@@ -59,6 +59,16 @@ FILE_EXTENSIONS = {
     "gif", "rar", "gz", "tgz", "elf", "dmg", "apk",
 }  # fmt: skip
 
+# Advisories show how actors build lookalike domains with stand-ins for the victim's name
+# ("targetsname-sso[.]com"). Those are hunting hints, not infrastructure, so they never
+# become indicators. M2 can still turn them into a lookalike-domain hunt.
+PLACEHOLDER_TOKENS = {
+    "targetsname", "targetname", "targetcompany", "targetorg", "targetdomain",
+    "victimname", "victimcompany", "victimdomain", "victimorg", "companyname",
+    "yourcompany", "yourdomain", "yourorg", "orgname", "organizationname",
+    "organisationname", "clientname", "customername",
+}  # fmt: skip
+
 # Phrasing addressed to a model rather than to a human reader. Real CTI evidence never says this.
 INJECTION_RE = re.compile(
     r"\b(?:ignore|disregard|forget)\b.{0,30}\b(?:previous|prior|above|earlier|all)\b.{0,20}"
@@ -219,7 +229,10 @@ class _Validator:
             raise _Reject("malformed", f"not an ATT&CK technique ID: {tech.attack_id!r}")
         info = self.attack.lookup(attack_id)
         if info is None:
-            raise _Reject("unknown_technique", f"{attack_id} is not in the local ATT&CK bundle")
+            raise _Reject(
+                "unknown_technique",
+                f"{attack_id} is not in the local ATT&CK bundle ({self.attack.domain})",
+            )
         page = self._quote_page(tech.evidence.quote)
         self._not_injected(tech.evidence.quote)
         warnings = []
@@ -275,6 +288,11 @@ class _Validator:
             raise _Reject("allowlisted", f"{ip} is on the allowlist")
 
     def _domain_policy(self, domain: str) -> None:
+        if PLACEHOLDER_TOKENS.intersection(re.split(r"[.-]", domain)):
+            raise _Reject(
+                "placeholder_pattern",
+                f"{domain} is a naming pattern with a placeholder, not a real domain",
+            )
         tld = domain.rsplit(".", 1)[-1]
         if tld in RESERVED_TLDS or any(
             domain == d or domain.endswith("." + d) for d in RESERVED_DOMAINS

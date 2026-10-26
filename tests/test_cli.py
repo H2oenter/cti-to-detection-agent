@@ -31,7 +31,7 @@ def test_ingest_then_trace_with_replayed_responses(cli_env, settings, attack_ind
 
     result = runner.invoke(app, ["ingest", str(FIXTURE_REPORT), "--replay", str(fixtures)])
     assert result.exit_code == 0, result.output
-    assert "complete" in result.output
+    assert "complete" in result.output and "Nothing was sent to the API" in result.output
     for reason in ("suspected_injection", "value_not_in_quote", "quote_not_in_source"):
         assert reason in result.output
 

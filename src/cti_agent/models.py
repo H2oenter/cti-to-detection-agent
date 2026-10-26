@@ -32,6 +32,7 @@ RejectReason = Literal[
     "malformed",
     "non_public_ip",
     "allowlisted",
+    "placeholder_pattern",
     "reserved_domain",
     "looks_like_filename",
     "bad_hash",

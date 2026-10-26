@@ -23,7 +23,9 @@ The loader hash was 3F786850E387550FDAB836ED7E6DC881DE23001B (SHA-1).
 SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 Report incidents to report@cisa.gov or visit cisa.gov. DNS checks used 8.8.8.8.
 Internal host 10.1.2.3 was also seen, and documentation address 192.0.2.10.
-The dropper was saved as svchost-update.exe. A sample page sat at example.com.""",
+The dropper was saved as svchost-update.exe. A sample page sat at example.com.
+Lookalike patterns like targetsname-sso[.]com and hxxps://oktalogin-targetcompany[.]com/x for
+each victim.""",
 ]
 SOURCE = SourceIndex(SOURCE_PAGES)
 
@@ -119,6 +121,19 @@ def test_indicator_accepted(attack_index, allowlist, item, expected_value, page)
         (ind("domain", "cisa.gov", "or visit cisa.gov."), "allowlisted"),
         (ind("email", "report@cisa.gov", "Report incidents to report@cisa.gov"), "allowlisted"),
         (ind("domain", "example.com", "A sample page sat at example.com."), "reserved_domain"),
+        # Naming patterns from the advisory, not infrastructure
+        (
+            ind("domain", "targetsname-sso.com", "patterns like targetsname-sso[.]com and"),
+            "placeholder_pattern",
+        ),
+        (
+            ind(
+                "url",
+                "https://oktalogin-targetcompany.com/x",
+                "and hxxps://oktalogin-targetcompany[.]com/x for",
+            ),
+            "placeholder_pattern",
+        ),
     ],
 )
 def test_indicator_rejected(attack_index, allowlist, item, reason):

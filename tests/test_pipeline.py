@@ -108,3 +108,6 @@ def test_record_then_replay_gives_identical_results(settings, tmp_path, attack_i
     hashes = lambda r: sorted(a.item_hash for a in r.validation.accepted)  # noqa: E731
     assert hashes(first) == hashes(second)
     assert first.run_id != second.run_id
+    replayed = [line for line in read_trace(second.out_dir / "trace.jsonl")
+                if line["stage"] == "collector"]  # fmt: skip
+    assert all(line["detail"].startswith("replayed") for line in replayed)

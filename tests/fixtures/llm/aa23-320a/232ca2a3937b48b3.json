@@ -1,0 +1,417 @@
+{
+ "request_key": "232ca2a3937b48b313f56397c1bf59bf2885d9f67ffdfe017dc99d29b0dfdf57",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 14383,
+  "output_tokens": 9980
+ },
+ "output": {
+  "report_title": "Scattered Spider",
+  "actors": [
+   {
+    "name": "Scattered Spider",
+    "aliases": [
+     "UNC3944",
+     "Scatter Swine",
+     "Oktapus",
+     "Octo Tempest",
+     "Storm-0875",
+     "Muddled Libra"
+    ],
+    "evidence": {
+     "quote": "Scattered Spider (also known as, UNC3944, Scatter Swine, Oktapus, Octo Tempest, Storm-0875, and Muddled Libra) engages in data extortion and several other criminal activities.1",
+     "location": "Overview"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [
+   {
+    "kind": "domain",
+    "value": "targetsname-sso.com",
+    "context": "Organization-specific crafted domain used by Scattered Spider in phishing and smishing attempts.",
+    "evidence": {
+     "quote": "targetsname-sso[.]com",
+     "location": "Table 3: Domains Used by Scattered Spider Threat Actors"
+    }
+   },
+   {
+    "kind": "domain",
+    "value": "targetsname-servicedesk.com",
+    "context": "Organization-specific crafted domain used by Scattered Spider in phishing and smishing attempts.",
+    "evidence": {
+     "quote": "targetsname-servicedesk[.]com",
+     "location": "Table 3: Domains Used by Scattered Spider Threat Actors"
+    }
+   },
+   {
+    "kind": "domain",
+    "value": "targetsname-okta.com",
+    "context": "Organization-specific crafted domain used by Scattered Spider in phishing and smishing attempts.",
+    "evidence": {
+     "quote": "targetsname-okta[.]com",
+     "location": "Table 3: Domains Used by Scattered Spider Threat Actors"
+    }
+   },
+   {
+    "kind": "domain",
+    "value": "targetsname-cms.com",
+    "context": "Organization-specific crafted domain used by Scattered Spider in phishing and smishing attempts.",
+    "evidence": {
+     "quote": "targetsname-cms[.]com",
+     "location": "Table 3: Domains Used by Scattered Spider Threat Actors"
+    }
+   },
+   {
+    "kind": "domain",
+    "value": "targetsname-helpdesk.com",
+    "context": "Organization-specific crafted domain used by Scattered Spider in phishing and smishing attempts.",
+    "evidence": {
+     "quote": "targetsname-helpdesk[.]com",
+     "location": "Table 3: Domains Used by Scattered Spider Threat Actors"
+    }
+   },
+   {
+    "kind": "domain",
+    "value": "oktalogin-targetcompany.com",
+    "context": "Organization-specific crafted domain used by Scattered Spider in phishing and smishing attempts.",
+    "evidence": {
+     "quote": "oktalogin-targetcompany[.]com",
+     "location": "Table 3: Domains Used by Scattered Spider Threat Actors"
+    }
+   }
+  ],
+  "techniques": [
+   {
+    "attack_id": "T1598",
+    "behaviour": "Posed as company IT or helpdesk staff by phone or SMS to obtain credentials from employees.",
+    "evidence": {
+     "quote": "Posed as company IT and/or helpdesk staff using phone calls or SMS messages to obtain",
+     "location": "Overview"
+    }
+   },
+   {
+    "attack_id": "T1656",
+    "behaviour": "Posed as company IT and/or helpdesk staff to gain access to networks.",
+    "evidence": {
+     "quote": "Impersonation T1656",
+     "location": "Table 10: Defense Evasion"
+    }
+   },
+   {
+    "attack_id": "T1204",
+    "behaviour": "Impersonating helpdesk personnel to direct employees to run commercial remote access tools.",
+    "evidence": {
+     "quote": "User Execution T1204",
+     "location": "Table 7: Execution"
+    }
+   },
+   {
+    "attack_id": "T1219",
+    "behaviour": "Directed employees to run commercial remote access tools, enabling command and control of the network.",
+    "evidence": {
+     "quote": "Remote Access Software T1219",
+     "location": "Table 15: Command and Control"
+    }
+   },
+   {
+    "attack_id": "T1566",
+    "behaviour": "Broad phishing and smishing attempts against targets, and phishing to direct employees to install remote access tools.",
+    "evidence": {
+     "quote": "Scattered Spider intrusions historically began with broad phishing [T1566] and smishing [T1660] attempts",
+     "location": "Recent Scattered Spider TTPs"
+    }
+   },
+   {
+    "attack_id": "T1660",
+    "behaviour": "Sent SMS messages (smishing) when targeting an organization.",
+    "evidence": {
+     "quote": "Scattered Spider intrusions historically began with broad phishing [T1566] and smishing [T1660] attempts",
+     "location": "Recent Scattered Spider TTPs"
+    }
+   },
+   {
+    "attack_id": "T1583.001",
+    "behaviour": "Created organization-specific domains for use in phishing and smishing.",
+    "evidence": {
+     "quote": "[T1583.001].",
+     "location": "Recent Scattered Spider TTPs"
+    }
+   },
+   {
+    "attack_id": "T1597.002",
+    "behaviour": "Purchased employee or contractor credentials on illicit marketplaces.",
+    "evidence": {
+     "quote": "illicit marketplaces such as Russia Market [T1597.002].",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1199",
+    "behaviour": "Compromised third-party services and abused trusted relationships of contracted IT help desks.",
+    "evidence": {
+     "quote": "transfer MFA tokens [T1078.002] [T1199] [T1566.004].",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1594",
+    "behaviour": "Searched business-to-business and victim-owned websites to determine an individual's role in a target organization.",
+    "evidence": {
+     "quote": "individual’s role in a target organization [T1594].",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1589",
+    "behaviour": "Gathered usernames, passwords and PII for targeted organizations.",
+    "evidence": {
+     "quote": "After identifying usernames, passwords, PII [T1589], and conducting SIM swaps, the threat actors then use",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1593.001",
+    "behaviour": "Used personal information derived from social media to enrich social engineering.",
+    "evidence": {
+     "quote": "access to personal information derived from social media [T1593.001], open-source information,",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1566.004",
+    "behaviour": "Used spearphishing voice calls to convince IT help desk personnel to reset passwords or transfer MFA tokens.",
+    "evidence": {
+     "quote": "transfer MFA tokens [T1078.002] [T1199] [T1566.004].",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1078.002",
+    "behaviour": "Obtained valid domain accounts to gain initial access, via help desk password resets and MFA token transfers.",
+    "evidence": {
+     "quote": "transfer MFA tokens [T1078.002] [T1199] [T1566.004].",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1598.004",
+    "behaviour": "Made repeated phone calls to employees and help desks to elicit password reset information.",
+    "evidence": {
+     "quote": "frequently occur over several calls [T1598.004]",
+     "location": "Reconnaissance, Resource Development, and Initial Access"
+    }
+   },
+   {
+    "attack_id": "T1451",
+    "behaviour": "Stole OTPs, credentials and security answers, including through SIM swaps.",
+    "evidence": {
+     "quote": "SIM Swap T1451 Scattered Spider threat actors steal OTPs, credentials, and security answers.",
+     "location": "Table 11: Credential Access"
+    }
+   },
+   {
+    "attack_id": "T1621",
+    "behaviour": "Sent repeated MFA notification prompts so employees would accept them (MFA fatigue).",
+    "evidence": {
+     "quote": "known as MFA fatigue) [T1621].3",
+     "location": "Overview"
+    }
+   },
+   {
+    "attack_id": "T1556.006",
+    "behaviour": "Registered their own MFA tokens after compromising a user account to establish persistence.",
+    "evidence": {
+     "quote": "register their own MFA tokens [T1556.006] [T1606] and deploy remote",
+     "location": "Execution, Persistence, and Privilege Escalation"
+    }
+   },
+   {
+    "attack_id": "T1606",
+    "behaviour": "Forged MFA tokens to gain access to the target network.",
+    "evidence": {
+     "quote": "register their own MFA tokens [T1556.006] [T1606] and deploy remote",
+     "location": "Execution, Persistence, and Privilege Escalation"
+    }
+   },
+   {
+    "attack_id": "T1484.002",
+    "behaviour": "Added a federated identity provider to the targeted SSO tenant and activated automatic account linking.",
+    "evidence": {
+     "quote": "organization’s SSO tenant and activated automatic account linking [T1484.002].",
+     "location": "Execution, Persistence, and Privilege Escalation"
+    }
+   },
+   {
+    "attack_id": "T1078",
+    "behaviour": "Abused valid accounts to keep network access even when passwords were changed.",
+    "evidence": {
+     "quote": "continue logging in even when passwords were changed [T1078].",
+     "location": "Execution, Persistence, and Privilege Escalation"
+    }
+   },
+   {
+    "attack_id": "T1213.002",
+    "behaviour": "Searched for SharePoint sites during discovery.",
+    "evidence": {
+     "quote": "specifically searching for SharePoint sites [T1213.002], credential storage documentation",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1552.001",
+    "behaviour": "Searched for insecurely stored credentials in credential storage documentation and files.",
+    "evidence": {
+     "quote": "[T1552.001], VMware vCenter infrastructure [T1018], backups, and instructions for setting up/logging into",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1018",
+    "behaviour": "Searched for VMware vCenter infrastructure and remote systems to exploit.",
+    "evidence": {
+     "quote": "[T1552.001], VMware vCenter infrastructure [T1018], backups, and instructions for setting up/logging into",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1213.003",
+    "behaviour": "Exfiltrated targeted organization's code repositories.",
+    "evidence": {
+     "quote": "[T1213.003], code-signing certificates [T1552.004], and source code [T1083] [TA0010].",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1552.004",
+    "behaviour": "Searched for insecurely stored private keys such as code-signing certificates.",
+    "evidence": {
+     "quote": "[T1213.003], code-signing certificates [T1552.004], and source code [T1083] [TA0010].",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1083",
+    "behaviour": "Searched compromised networks for files and directories including source code.",
+    "evidence": {
+     "quote": "[T1213.003], code-signing certificates [T1552.004], and source code [T1083] [TA0010].",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1538",
+    "behaviour": "Activated AWS Systems Manager Inventory to discover targets for lateral movement.",
+    "evidence": {
+     "quote": "Threat actors activate Amazon Web Services (AWS) Systems Manager Inventory [T1538] to discover targets for lateral",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1021.007",
+    "behaviour": "Moved laterally to preexisting Amazon EC2 cloud instances.",
+    "evidence": {
+     "quote": "movement [TA0007] [TA0008], then move to both preexisting [T1021.007] and actor-created [T1578.002]",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1578.002",
+    "behaviour": "Created actor-created Amazon EC2 cloud instances for lateral movement and data collection.",
+    "evidence": {
+     "quote": "movement [TA0007] [TA0008], then move to both preexisting [T1021.007] and actor-created [T1578.002]",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1648",
+    "behaviour": "Used actor-installed ETL tools to bring data from multiple sources into a centralized database.",
+    "evidence": {
+     "quote": "Scattered Spider threat actors use actor-installed extract, transform, and load (ETL) tools [T1648] to bring",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1074",
+    "behaviour": "Staged data from multiple sources in a centralized database before exfiltration.",
+    "evidence": {
+     "quote": "data sources into a centralized database [T1074] [T1530].",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1530",
+    "behaviour": "Searched data in cloud storage for collection and exfiltration.",
+    "evidence": {
+     "quote": "data sources into a centralized database [T1074] [T1530].",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1567",
+    "behaviour": "Exfiltrated large volumes of data from Snowflake.",
+    "evidence": {
+     "quote": "immediately [T1567].",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1114",
+    "behaviour": "Searched targeted organization's Slack, Teams and Exchange Online emails for mentions of the intrusion.",
+    "evidence": {
+     "quote": "Microsoft Exchange Online for emails [T1114] or conversations regarding the threat actors’ intrusion and",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1136",
+    "behaviour": "Created new identities in the target environment.",
+    "evidence": {
+     "quote": "This is sometimes achieved by creating new identities in the environment [T1136] and is often upheld with",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1585.001",
+    "behaviour": "Created fake social media profiles to backstop newly created identities.",
+    "evidence": {
+     "quote": "fake social media profiles [T1585.001] to backstop newly created identities.",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1090",
+    "behaviour": "Used proxy networks to disguise the source of malicious traffic.",
+    "evidence": {
+     "quote": "consistently use proxy networks [T1090] and rotate machine names to further hamper detection and",
+     "location": "Discovery, Lateral Movement, and Exfiltration"
+    }
+   },
+   {
+    "attack_id": "T1486",
+    "behaviour": "Exfiltrated data for extortion and then encrypted systems for ransom, including VMware ESXi servers via DragonForce ransomware.",
+    "evidence": {
+     "quote": "systems for extortion and then encrypt data on the system for ransom [T1486].",
+     "location": "Recent Scattered Spider TTPs"
+    }
+   },
+   {
+    "attack_id": "T1567.002",
+    "behaviour": "Exfiltrated data to multiple sites including MEGA.NZ and U.S.-based data centers such as Amazon S3.",
+    "evidence": {
+     "quote": "as Amazon S3 [T1567.002].",
+     "location": "Overview"
+    }
+   },
+   {
+    "attack_id": "T1657",
+    "behaviour": "Monetized access through extortion-enabled ransomware and data theft.",
+    "evidence": {
+     "quote": "Financial Theft T1657",
+     "location": "Table 17: Impact"
+    }
+   }
+  ]
+ }
+}

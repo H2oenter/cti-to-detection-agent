@@ -22,6 +22,9 @@ class TechniqueInfo:
 
 
 class AttackLookup(Protocol):
+    @property
+    def domain(self) -> str: ...
+
     def lookup(self, attack_id: str) -> TechniqueInfo | None: ...
 
 
@@ -34,6 +37,17 @@ class AttackIndex:
         self.bundle_path = bundle_path
         self._data = MitreAttackData(stix_filepath=str(bundle_path))
         self._cache: dict[str, TechniqueInfo | None] = {}
+        self._domain: str | None = None
+
+    @property
+    def domain(self) -> str:
+        """Which ATT&CK matrix this bundle covers, e.g. "enterprise-attack v20.0"."""
+        if self._domain is None:
+            techniques = self._data.get_techniques(remove_revoked_deprecated=False)
+            domains = techniques[0].get("x_mitre_domains", []) if techniques else []
+            version = f" v{self.version}" if self.version else ""
+            self._domain = f"{domains[0] if domains else 'unknown'}{version}"
+        return self._domain
 
     @property
     def version(self) -> str | None:

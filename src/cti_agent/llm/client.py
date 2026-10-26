@@ -184,7 +184,7 @@ class ReplayClient:
             output_tokens=record["usage"]["output_tokens"],
             latency_ms=0,
             model=record["model"],
-            detail=record.get("detail"),
+            detail="; ".join(filter(None, ["replayed", record.get("detail")])),
         )
 
 

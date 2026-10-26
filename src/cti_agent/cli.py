@@ -6,6 +6,7 @@ sends data anywhere (design rule 5).
 
 from __future__ import annotations
 
+import sys
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -43,6 +44,15 @@ app = typer.Typer(
     help="Turn public threat reports into evidence-checked STIX, coverage gaps and draft KQL.",
 )
 console = Console()
+
+
+@app.callback()
+def _setup() -> None:
+    # Report text can hold characters a legacy Windows code page can't print (pypdf emits
+    # U+FFFD for unmapped glyphs). Print a replacement instead of crashing mid-run.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
 
 
 def _not_yet(milestone: str) -> None:
@@ -95,6 +105,11 @@ def ingest(
         console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
         raise typer.Exit(code=3) from None
     _print_ingest(result)
+    if replay:
+        console.print(
+            "[dim]Replayed recorded responses: token counts and cost are from the original "
+            "run. Nothing was sent to the API.[/dim]"
+        )
 
 
 def _label_value(item_type: str, item: dict) -> tuple[str, str]:

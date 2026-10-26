@@ -1,0 +1,35 @@
+{
+ "request_key": "7a2988fb995d03d6d8ffdcda8d9f01a69b69e89a32115b98ec139fab11897f02",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 6101,
+  "output_tokens": 1382
+ },
+ "output": {
+  "report_title": "Joint advisory on Scattered Spider, Product ID AA23-320A (chunk 2 of 2)",
+  "actors": [
+   {
+    "name": "Scattered Spider",
+    "aliases": [],
+    "evidence": {
+     "quote": "techniques known to be used by Scattered Spider actors",
+     "location": "Page 14 of 17"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [],
+  "techniques": [
+   {
+    "attack_id": "T1621",
+    "behaviour": "Push bombing (MFA fatigue) described as a technique known to be used by Scattered Spider actors, which phishing-resistant MFA implementations are not susceptible to.",
+    "evidence": {
+     "quote": "These MFA implementations are resistant to phishing and not susceptible to push bombing or SIM swap attacks, which are techniques known to be used by Scattered Spider actors.",
+     "location": "Page 14 of 17"
+    }
+   }
+  ]
+ }
+}
