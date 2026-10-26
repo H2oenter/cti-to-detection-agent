@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cti_agent.config import Settings
-from cti_agent.llm.client import LLMClient
+from cti_agent.llm.client import FatalLLMError, LLMClient
 from cti_agent.llm.prompting import Prompt
 from cti_agent.models import Extraction
 from cti_agent.trace import Tracer, estimate_tokens
@@ -103,14 +103,20 @@ def collect(
                 )
             break
 
-        result = client.structured(
-            model=settings.extract_model,
-            system=prompt.text,
-            user=user,
-            schema=Extraction,
-            max_tokens=settings.extract_max_output_tokens,
-            effort=settings.extract_effort,
-        )
+        try:
+            result = client.structured(
+                model=settings.extract_model,
+                system=prompt.text,
+                user=user,
+                schema=Extraction,
+                max_tokens=settings.extract_max_output_tokens,
+                effort=settings.extract_effort,
+            )
+        except FatalLLMError as exc:
+            tracer.record(
+                stage="collector", step=step, outcome="fatal_error", detail=str(exc)[:300]
+            )
+            raise
         outcome = _outcome(result.stop_reason, result.parsed is not None)
         tracer.record(
             stage="collector",

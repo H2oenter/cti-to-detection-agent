@@ -76,7 +76,10 @@ def ingest(
         client = ReplayClient(replay)
     else:
         key = settings.anthropic_api_key
-        client = AnthropicClient(api_key=key.get_secret_value() if key else None)
+        client = AnthropicClient(
+            api_key=key.get_secret_value() if key else None,
+            workspace_id=settings.anthropic_workspace_id,
+        )
     if record:
         client = RecordingClient(client, record)
 

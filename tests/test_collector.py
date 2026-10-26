@@ -1,7 +1,9 @@
 import itertools
 
+import pytest
 from conftest import FIXTURE_REPORT, FakeModel
 
+from cti_agent.llm.client import AnthropicClient, FatalLLMError
 from cti_agent.llm.prompting import load_prompt
 from cti_agent.stages.collector import chunk_text, collect, wrap_untrusted
 from cti_agent.trace import Tracer, read_trace
@@ -71,3 +73,24 @@ def test_prompt_is_versioned_and_says_no_tools():
     assert prompt.version == "collector@v1"
     assert "<untrusted_report>" in prompt.text
     assert "no tools" in prompt.text
+
+
+class _Unauthorised:
+    def structured(self, **kwargs):
+        raise FatalLLMError("BadRequestError: key not scoped to a workspace")
+
+
+def test_fatal_error_is_traced_then_raised(tmp_path, settings):
+    tracer = Tracer("run-1", tmp_path / "trace.jsonl", settings)
+    with pytest.raises(FatalLLMError):
+        collect("text", client=_Unauthorised(), tracer=tracer, settings=settings,
+                prompt=load_prompt("collector"))  # fmt: skip
+    [line] = read_trace(tmp_path / "trace.jsonl")
+    assert line["outcome"] == "fatal_error" and "workspace" in line["detail"]
+
+
+def test_workspace_id_is_sent_as_a_header():
+    client = AnthropicClient(api_key="test-not-a-key", workspace_id="wrkspc_test")
+    assert client._client.default_headers["anthropic-workspace-id"] == "wrkspc_test"
+    plain = AnthropicClient(api_key="test-not-a-key")
+    assert "anthropic-workspace-id" not in plain._client.default_headers

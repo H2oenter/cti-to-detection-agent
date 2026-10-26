@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     anthropic_api_key: SecretStr | None = None
+    # Needed only when the key isn't scoped to a workspace (Console > Settings > Workspaces).
+    anthropic_workspace_id: str | None = None
 
     extract_model: str = "claude-haiku-5-5"
     analyse_model: str = "claude-sonnet-5-5"

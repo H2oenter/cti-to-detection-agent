@@ -57,10 +57,18 @@ class LLMClient(Protocol):
 
 
 class AnthropicClient:
-    def __init__(self, api_key: str | None = None, max_retries: int = 3, timeout: float = 300):
-        # api_key=None lets the SDK resolve credentials from the environment.
+    def __init__(
+        self,
+        api_key: str | None = None,
+        workspace_id: str | None = None,
+        max_retries: int = 3,
+        timeout: float = 300,
+    ):
+        # api_key=None lets the SDK resolve credentials from the environment. Keys that
+        # aren't scoped to a workspace must name one on every request.
+        headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
         self._client = anthropic.Anthropic(
-            api_key=api_key, max_retries=max_retries, timeout=timeout
+            api_key=api_key, default_headers=headers, max_retries=max_retries, timeout=timeout
         )
 
     def structured(
