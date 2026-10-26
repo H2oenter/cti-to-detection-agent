@@ -199,3 +199,88 @@ class VulnAdvisory(BaseModel):
     published: datetime | None = None
     modified: datetime | None = None
     references: list[str] = Field(default_factory=list)  # recorded, never fetched
+
+
+# --- Analysis (M2) -------------------------------------------------------------------
+
+CoverageState = Literal["covered", "partial", "gap", "not_applicable"]
+
+
+class CoverageEntry(BaseModel):
+    attack_id: str
+    name: str
+    domain: str
+    tactics: list[str]
+    state: CoverageState
+    rules: list[str] = Field(default_factory=list)
+    note: str | None = None
+    evidence_kind: EvidenceKind
+
+
+class HuntDraft(BaseModel):
+    """What the analyst model returns for one hunt."""
+
+    title: str = Field(description="Short name for the hunt.")
+    technique_id: str = Field(description="The ATT&CK technique this hunt targets.")
+    tables: list[str] = Field(description="The Sentinel or Defender tables the query reads.")
+    query: str = Field(description="The KQL query: read-only and bounded in time.")
+    evidence_quotes: list[str] = Field(
+        description="The evidence quotes you were given that motivated this hunt, copied exactly."
+    )
+    expected_false_positives: list[str] = Field(
+        description="Benign activity this query is likely to match."
+    )
+    tuning_notes: str = Field(description="How to tune the query for a specific environment.")
+    assumptions: list[str] = Field(
+        description="Anything the query assumes about logging, naming or the environment."
+    )
+    confidence: Confidence
+
+
+class LintFinding(BaseModel):
+    severity: Literal["error", "warning"]
+    code: str
+    message: str
+
+
+class ReviewScores(BaseModel):
+    """What the reviewer model returns for one draft. Each score is 1 (poor) to 5 (strong)."""
+
+    faithful: int = Field(ge=1, le=5, description="Does the hunt follow from the evidence given?")
+    kql_correct: int = Field(ge=1, le=5, description="Is the KQL valid and logically correct?")
+    actionable: int = Field(ge=1, le=5, description="Could an analyst run and triage this today?")
+    calibrated: int = Field(
+        ge=1, le=5, description="Do the confidence and false positives match the query?"
+    )
+    reasons: list[str] = Field(description="One line per score explaining it.")
+
+
+class Hunt(BaseModel):
+    draft_id: str
+    kind: Literal["coverage_gap", "exposure", "behaviour"]
+    technique_id: str
+    draft: HuntDraft
+    lint: list[LintFinding] = Field(default_factory=list)
+    review: ReviewScores | None = None
+    review_outcome: str = "skipped"
+    needs_attention: bool = False
+    attention_reasons: list[str] = Field(default_factory=list)
+    item_hash: str
+    model: str
+    prompt_version: str
+    retire_when: str | None = None
+
+    @property
+    def lint_failed(self) -> bool:
+        return any(f.severity == "error" for f in self.lint)
+
+
+class AnalysisResult(BaseModel):
+    run_id: str
+    actor: str | None
+    tactics: dict[str, list[str]]
+    coverage: list[CoverageEntry]
+    hunts: list[Hunt]
+    not_drafted: list[str] = Field(default_factory=list)  # gaps beyond the per-run cap
+    leadership_summary: str = ""
+    summary_source: Literal["model", "template"] = "template"
