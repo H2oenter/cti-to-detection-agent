@@ -3,9 +3,13 @@
 Order of checks for every item:
   1. shape  - is it a well-formed IP / domain / hash / CVE / technique ID?
   2. evidence - is the quote in the source, and is the value in its own quote?
+     Is the quote taken from text that reads like instructions to an AI?
   3. policy - private ranges, reserved names, the allowlist.
 
-The second check is the main anti-hallucination control (design rule 4).
+The second check is the main anti-hallucination control (design rule 4). The
+injection check exists because a planted value is, by definition, in the source:
+quoting it passes the verbatim test, so the surroundings have to be looked at too.
+It only catches obvious phrasing; the eval measures what the model itself does.
 """
 
 from __future__ import annotations
@@ -54,6 +58,19 @@ FILE_EXTENSIONS = {
     "iso", "img", "vhd", "vhdx", "jar", "php", "asp", "aspx", "jsp", "jpg", "jpeg", "png",
     "gif", "rar", "gz", "tgz", "elf", "dmg", "apk",
 }  # fmt: skip
+
+# Phrasing addressed to a model rather than to a human reader. Real CTI evidence never says this.
+INJECTION_RE = re.compile(
+    r"\b(?:ignore|disregard|forget)\b.{0,30}\b(?:previous|prior|above|earlier|all)\b.{0,20}"
+    r"\b(?:instructions?|rules|prompts?|guidance)\b"
+    r"|\b(?:system|developer) prompt\b"
+    r"|\bnew instructions?\b"
+    r"|\bnote to (?:ai|llms?|the model|assistants?|language models?)\b"
+    r"|\b(?:as an?|you are an?) (?:ai|llm|language model|assistant)\b"
+    r"|\b(?:call|use|invoke|run|trigger) the \w+ (?:tool|function|command)\b"
+    r"|\badd (?:the |this |an? )?(?:indicator|ioc|domain|ip)\b.{0,60}\bconfidence\b",
+    re.IGNORECASE,
+)
 
 
 class _Reject(Exception):
@@ -173,6 +190,14 @@ class _Validator:
             raise _Reject("quote_not_in_source", f"quote not found in source: {quote[:120]!r}")
         return match.page
 
+    def _not_injected(self, quote: str) -> None:
+        surroundings = self.source.context(quote) or ""
+        if hit := INJECTION_RE.search(surroundings):
+            raise _Reject(
+                "suspected_injection",
+                f"evidence sits in text addressed to an AI: {hit.group(0)[:80]!r}",
+            )
+
     @staticmethod
     def _require_in_quote(value: str, quote: str) -> None:
         if value.lower() not in match_key(quote).lower():
@@ -184,6 +209,7 @@ class _Validator:
         value = _normalise_indicator(ind.kind, ind.value)
         page = self._quote_page(ind.evidence.quote)
         self._require_in_quote(value, ind.evidence.quote)
+        self._not_injected(ind.evidence.quote)
         self._policy(ind.kind, value)
         return ind.model_copy(update={"value": value}), "explicit", page, []
 
@@ -195,6 +221,7 @@ class _Validator:
         if info is None:
             raise _Reject("unknown_technique", f"{attack_id} is not in the local ATT&CK bundle")
         page = self._quote_page(tech.evidence.quote)
+        self._not_injected(tech.evidence.quote)
         warnings = []
         if info.revoked:
             replacement = f"; replaced by {info.revoked_by}" if info.revoked_by else ""
@@ -210,6 +237,7 @@ class _Validator:
             raise _Reject("malformed", "empty actor name")
         page = self._quote_page(actor.evidence.quote)
         self._require_in_quote(name, actor.evidence.quote)
+        self._not_injected(actor.evidence.quote)
         kept = [a.strip() for a in actor.aliases if a.strip() and self.source.contains(a)]
         dropped = [a for a in actor.aliases if a.strip() and a.strip() not in kept]
         warnings = [f"alias not found in source, dropped: {a!r}" for a in dropped]
@@ -221,6 +249,7 @@ class _Validator:
             raise _Reject("bad_cve", f"not a CVE ID: {cve.cve_id!r}")
         page = self._quote_page(cve.evidence.quote)
         self._require_in_quote(cve_id, cve.evidence.quote)
+        self._not_injected(cve.evidence.quote)
         return cve.model_copy(update={"cve_id": cve_id}), "explicit", page, []
 
     # --- policy -----------------------------------------------------------------------

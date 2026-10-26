@@ -106,6 +106,17 @@ class SourceIndex:
     def contains(self, text: str) -> bool:
         return self.find(text).found
 
+    def context(self, quote: str, radius: int = 200) -> str | None:
+        """The normalised source text around a quote, for checks that need surroundings."""
+        key = match_key(quote)
+        if not key:
+            return None
+        for variant in self._doc_keys:
+            start = variant.find(key)
+            if start >= 0:
+                return variant[max(0, start - radius) : start + len(key) + radius]
+        return None
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()

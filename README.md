@@ -4,8 +4,9 @@ A small agentic pipeline that reads a public threat report and turns it into val
 intelligence, an ATT&CK coverage check and draft KQL hunts. A person approves every output
 before it leaves the tool.
 
-> **Status:** early build (M0). The full README, with diagram, threat model and evaluation
-> results, comes with milestone M4.
+> **Status:** `ingest` (stages 1-3) works end to end, and the tests run it offline with
+> recorded responses. Analysis, review and publish come next. The full README, with diagram,
+> threat model and evaluation results, comes with milestone M4.
 
 ```
 report (local PDF / HTML / text)  or  fresh advisory (allowlisted feeds, no LLM)
@@ -27,7 +28,9 @@ report (local PDF / HTML / text)  or  fresh advisory (allowlisted feeds, no LLM)
    allowlist of feed endpoints. Links found inside reports or feed items are recorded and
    never fetched.
 4. **Evidence or it didn't happen.** Every item's quote must appear verbatim in the source
-   (after normalisation), and the item's value must appear in its own quote.
+   (after normalisation), and the item's value must appear in its own quote. Evidence taken
+   from text addressed to an AI ("ignore previous instructions...") is rejected as a
+   suspected injection.
 5. **Read widely, write narrowly.** `publish` is the only command that sends data anywhere.
    It runs as a dry run unless you pass `--apply`.
 6. **Least privilege.** Queries use one read-only identity. `publish` uses a separate one.
@@ -44,7 +47,13 @@ pip install -e ".[dev]"
 cp .env.example .env              # then add ANTHROPIC_API_KEY
 python scripts/fetch_attack.py    # one-off download of the ATT&CK bundle
 pytest
+
+cti-agent ingest reports/aa23-320a.pdf --tlp CLEAR   # stages 1-3, calls the model
+cti-agent trace <run_id>                             # tokens, cost and outcome per step
 ```
+
+Every run writes `out/<run_id>/` with the raw model output, the accepted items, `rejected.jsonl`
+with a reason for each rejection, a validated STIX 2.1 `bundle.json` and `trace.jsonl`.
 
 All rule names in `data/my_rules.sample.csv` are fictional.
 

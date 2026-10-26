@@ -28,6 +28,7 @@ EvidenceKind = Literal["explicit", "inferred"]
 RejectReason = Literal[
     "quote_not_in_source",
     "value_not_in_quote",
+    "suspected_injection",
     "malformed",
     "non_public_ip",
     "allowlisted",

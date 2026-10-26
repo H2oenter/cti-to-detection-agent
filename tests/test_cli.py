@@ -1,9 +1,55 @@
+import pytest
+from conftest import FIXTURE_REPORT, FIXTURES, ROOT, FakeModel
 from typer.testing import CliRunner
 
 from cti_agent.cli import app
 from cti_agent.config import Settings, tlp_block_reason
+from cti_agent.llm.client import RecordingClient
+from cti_agent.pipeline import run_ingest
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def cli_env(tmp_path, monkeypatch):
+    """Run the CLI from an empty folder (no .env) with test paths."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setenv("OUT_DIR", str(tmp_path / "out"))
+    monkeypatch.setenv("ATTACK_BUNDLE", str(FIXTURES / "attack-mini.json"))
+    monkeypatch.setenv("ALLOWLIST_FILE", str(ROOT / "data" / "allowlist.txt"))
+    return tmp_path
+
+
+def test_ingest_then_trace_with_replayed_responses(cli_env, settings, attack_index):
+    fixtures = cli_env / "llm"
+    recording = settings.model_copy(update={"out_dir": cli_env / "recording"})
+    run_ingest(
+        FIXTURE_REPORT, "CLEAR", recording, RecordingClient(FakeModel(), fixtures),
+        attack=attack_index,
+    )  # fmt: skip
+
+    result = runner.invoke(app, ["ingest", str(FIXTURE_REPORT), "--replay", str(fixtures)])
+    assert result.exit_code == 0, result.output
+    assert "complete" in result.output
+    for reason in ("suspected_injection", "value_not_in_quote", "quote_not_in_source"):
+        assert reason in result.output
+
+    [run_dir] = [p for p in (cli_env / "out").iterdir() if p.is_dir()]
+    traced = runner.invoke(app, ["trace", run_dir.name])
+    assert traced.exit_code == 0, traced.output
+    assert "collector" in traced.output and "Budget used" in traced.output
+
+
+def test_ingest_tlp_red_exits_2(cli_env):
+    result = runner.invoke(app, ["ingest", str(FIXTURE_REPORT), "--tlp", "red"])
+    assert result.exit_code == 2
+    assert "TLP:RED" in result.output
+
+
+def test_ingest_missing_file_exits_2(cli_env):
+    result = runner.invoke(app, ["ingest", "nope.pdf", "--replay", "x"])
+    assert result.exit_code == 2
 
 
 def test_help_lists_commands():
