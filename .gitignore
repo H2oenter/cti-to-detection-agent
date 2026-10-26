@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# Local-only brief (mentions the interview; never publish)
+BRIEF.md
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Large or regenerable data
+data/attack/*.json
+data/attack/VERSION
+reports/*.pdf
+reports/*.html
+reports/inbox/
+
+# Run outputs
+out/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

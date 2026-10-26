@@ -1,0 +1,33 @@
+# Values that are never treated as IOCs, even when a report mentions them.
+# One entry per line: a domain (also matches its subdomains), an IP or a CIDR.
+#
+# Deliberately NOT listed: code and file hosting (github.com, raw.githubusercontent.com,
+# drive.google.com, dropbox.com, ...). Attackers use them, so URLs there can be real IOCs.
+
+# Report authors and reference sites
+cisa.gov
+us-cert.gov
+dhs.gov
+fbi.gov
+ic3.gov
+nsa.gov
+nist.gov
+cve.org
+mitre.org
+first.org
+ncsc.gov.uk
+cyber.gov.au
+cyber.gc.ca
+microsoft.com
+learn.microsoft.com
+virustotal.com
+
+# Public DNS resolvers
+8.8.8.8
+8.8.4.4
+1.1.1.1
+1.0.0.1
+9.9.9.9
+149.112.112.112
+208.67.222.222
+208.67.220.220

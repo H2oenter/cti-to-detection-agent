@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(python -m cti_agent:*)"
+    ],
+    "deny": [
+      "Bash(az:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(Invoke-RestMethod:*)",
+      "Read(./.env)",
+      "Read(./secrets/**)"
+    ]
+  }
+}

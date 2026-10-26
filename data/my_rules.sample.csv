@@ -1,0 +1,10 @@
+# FICTIONAL rule set for the coverage check. These rules do not exist in any real
+# environment; they only give the coverage check something to compare against.
+# technique_ids and tables are semicolon-separated.
+rule_name,technique_ids,tables
+FICTIONAL - MFA push burst from one user,T1621,SigninLogs;AADNonInteractiveUserSignInLogs
+FICTIONAL - Sign-in from new country after password reset,T1078;T1078.004,SigninLogs;AuditLogs
+FICTIONAL - RMM tool first seen on host,T1219,DeviceProcessEvents;DeviceNetworkEvents
+FICTIONAL - Phishing link clicked then sign-in,T1566;T1566.002,UrlClickEvents;SigninLogs
+FICTIONAL - Mass file rename with new extension,T1486,DeviceFileEvents
+FICTIONAL - Encoded PowerShell command line,T1059.001,DeviceProcessEvents
