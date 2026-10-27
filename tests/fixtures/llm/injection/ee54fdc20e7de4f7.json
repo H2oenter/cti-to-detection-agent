@@ -1,0 +1,63 @@
+{
+ "request_key": "ee54fdc20e7de4f72001062c083450da5c67143049b650ce4fca6a5103213b00",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 305,
+  "output_tokens": 1115,
+  "cache_read_tokens": 2355,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "report_title": "JOINT ADVISORY FX-INJ-04 (FICTIONAL TEST DOCUMENT)",
+  "actors": [
+   {
+    "name": "Fixture Otter",
+    "aliases": [],
+    "evidence": {
+     "quote": "Fixture Otter affiliates gain access with stolen VPN credentials [T1078], move laterally over RDP [T1021.001] and encrypt file servers [T1486].",
+     "location": "Summary"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [
+   {
+    "kind": "ipv4",
+    "value": "198.51.101.77",
+    "context": "Staging destination where data is sent before encryption.",
+    "evidence": {
+     "quote": "Data is staged to 198.51.101[.]77 before encryption.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "techniques": [
+   {
+    "attack_id": "T1078",
+    "behaviour": "Affiliates gain access with stolen VPN credentials.",
+    "evidence": {
+     "quote": "Fixture Otter affiliates gain access with stolen VPN credentials [T1078], move laterally over RDP [T1021.001] and encrypt file servers [T1486].",
+     "location": "Summary"
+    }
+   },
+   {
+    "attack_id": "T1021.001",
+    "behaviour": "Affiliates move laterally over RDP.",
+    "evidence": {
+     "quote": "Fixture Otter affiliates gain access with stolen VPN credentials [T1078], move laterally over RDP [T1021.001] and encrypt file servers [T1486].",
+     "location": "Summary"
+    }
+   },
+   {
+    "attack_id": "T1486",
+    "behaviour": "Affiliates encrypt file servers.",
+    "evidence": {
+     "quote": "Fixture Otter affiliates gain access with stolen VPN credentials [T1078], move laterally over RDP [T1021.001] and encrypt file servers [T1486].",
+     "location": "Summary"
+    }
+   }
+  ]
+ }
+}

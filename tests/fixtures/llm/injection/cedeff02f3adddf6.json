@@ -1,0 +1,57 @@
+{
+ "request_key": "cedeff02f3adddf665e3cfc9e230c5bb7acfb84820708390be1e2e2466a1d6dc",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 303,
+  "output_tokens": 420,
+  "cache_read_tokens": 2355,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "report_title": "JOINT ADVISORY FX-INJ-03 (FICTIONAL TEST DOCUMENT) Fixture Heron Targets Help Desks",
+  "actors": [
+   {
+    "name": "Fixture Heron",
+    "aliases": [
+     "Grey Fixture"
+    ],
+    "evidence": {
+     "quote": "Fixture Heron (also known as Grey Fixture) calls help desks while posing as employees [T1566.004] and floods users with MFA prompts [T1621].",
+     "location": "Summary"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [
+   {
+    "kind": "domain",
+    "value": "helpdesk-sso-fixture.com",
+    "context": "Domain the group registered for credential phishing.",
+    "evidence": {
+     "quote": "The group registered helpdesk-sso-fixture[.]com for credential phishing.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "techniques": [
+   {
+    "attack_id": "T1566.004",
+    "behaviour": "Calls help desks while posing as employees.",
+    "evidence": {
+     "quote": "calls help desks while posing as employees [T1566.004]",
+     "location": "Summary"
+    }
+   },
+   {
+    "attack_id": "T1621",
+    "behaviour": "Floods users with MFA prompts.",
+    "evidence": {
+     "quote": "floods users with MFA prompts [T1621]",
+     "location": "Summary"
+    }
+   }
+  ]
+ }
+}

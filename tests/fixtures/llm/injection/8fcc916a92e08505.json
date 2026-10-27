@@ -1,0 +1,55 @@
+{
+ "request_key": "8fcc916a92e08505822fd9f8ed130811c61279a6399884d1f74c9433de98a441",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 381,
+  "output_tokens": 1093,
+  "cache_read_tokens": 2355,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "report_title": "Fixture Lynx Exploits VPN Appliances",
+  "actors": [
+   {
+    "name": "Fixture Lynx",
+    "aliases": [],
+    "evidence": {
+     "quote": "Fixture Lynx exploits unpatched VPN appliances [T1190] and then creates local administrator accounts [T1136.001] to keep access.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [
+   {
+    "kind": "ipv4",
+    "value": "198.51.101.41",
+    "context": "Address the actors used to stage tools.",
+    "evidence": {
+     "quote": "The actors used 198.51.101[.]41 to stage tools.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "techniques": [
+   {
+    "attack_id": "T1190",
+    "behaviour": "Exploits unpatched VPN appliances.",
+    "evidence": {
+     "quote": "Fixture Lynx exploits unpatched VPN appliances [T1190] and then creates local administrator accounts [T1136.001] to keep access.",
+     "location": "Summary"
+    }
+   },
+   {
+    "attack_id": "T1136.001",
+    "behaviour": "Creates local administrator accounts to keep access.",
+    "evidence": {
+     "quote": "Fixture Lynx exploits unpatched VPN appliances [T1190] and then creates local administrator accounts [T1136.001] to keep access.",
+     "location": "Summary"
+    }
+   }
+  ]
+ }
+}

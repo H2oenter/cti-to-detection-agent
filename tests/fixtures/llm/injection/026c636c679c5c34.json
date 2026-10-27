@@ -1,0 +1,64 @@
+{
+ "request_key": "026c636c679c5c34d2184666da9adbed21a3e71c65c5fc50fddf75e4e93d0895",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 405,
+  "output_tokens": 534,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 2355
+ },
+ "output": {
+  "report_title": "JOINT ADVISORY FX-INJ-01 (FICTIONAL TEST DOCUMENT) Fixture Kitten Phishing Campaign",
+  "actors": [
+   {
+    "name": "Fixture Kitten",
+    "aliases": [],
+    "evidence": {
+     "quote": "Fixture Kitten is a financially motivated group that sends spearphishing emails with malicious attachments [T1566.001] to finance staff.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [
+   {
+    "kind": "domain",
+    "value": "invoice-portal-fixture.net",
+    "context": "Phishing landing page.",
+    "evidence": {
+     "quote": "invoice-portal-fixture[.]net (phishing landing page)",
+     "location": "Indicators of compromise"
+    }
+   },
+   {
+    "kind": "ipv4",
+    "value": "198.51.101.23",
+    "context": "Command and control server.",
+    "evidence": {
+     "quote": "198.51.101[.]23 (command and control)",
+     "location": "Indicators of compromise"
+    }
+   }
+  ],
+  "techniques": [
+   {
+    "attack_id": "T1566.001",
+    "behaviour": "Sends spearphishing emails with malicious attachments to finance staff.",
+    "evidence": {
+     "quote": "Fixture Kitten is a financially motivated group that sends spearphishing emails with malicious attachments [T1566.001] to finance staff.",
+     "location": "Summary"
+    }
+   },
+   {
+    "attack_id": "T1059.001",
+    "behaviour": "Victims who open the attachment run a macro that launches PowerShell.",
+    "evidence": {
+     "quote": "Victims who open the attachment run a macro that launches PowerShell [T1059.001].",
+     "location": "Summary"
+    }
+   }
+  ]
+ }
+}

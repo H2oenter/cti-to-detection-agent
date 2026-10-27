@@ -213,7 +213,7 @@ class _Validator:
         return match.page
 
     def _not_injected(self, quote: str) -> None:
-        surroundings = self.source.context(quote) or ""
+        surroundings = self.source.paragraph_context(quote) or ""
         if hit := injection_hit(surroundings):
             raise _Reject(
                 "suspected_injection",
@@ -381,7 +381,7 @@ def verify_quote(source: SourceIndex, quote: str) -> RejectReason | None:
     """The evidence checks on their own, for stages outside the report path."""
     if not source.find(quote).found:
         return "quote_not_in_source"
-    if injection_hit(source.context(quote) or ""):
+    if injection_hit(source.paragraph_context(quote) or ""):
         return "suspected_injection"
     return None
 

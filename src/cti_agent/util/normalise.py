@@ -43,6 +43,7 @@ _FOLD = {
 }
 
 _WS = re.compile(r"\s+")
+_PARAGRAPH = re.compile(r"\n\s*\n")
 _LINEBREAK_HYPHEN = re.compile(r"(\w)-[ \t]*\r?\n\s*(\w)")
 
 
@@ -86,10 +87,17 @@ class SourceIndex:
     pages: list[str]
     _page_keys: list[tuple[str, ...]] = field(init=False, repr=False)
     _doc_keys: tuple[str, ...] = field(init=False, repr=False)
+    _para_keys: list[tuple[str, ...]] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._page_keys = [_variants(p) for p in self.pages]
         self._doc_keys = _variants("\n".join(self.pages))
+        self._para_keys = [
+            _variants(para)
+            for page in self.pages
+            for para in _PARAGRAPH.split(page)
+            if para.strip()
+        ]
 
     def find(self, quote: str) -> QuoteMatch:
         key = match_key(quote)
@@ -128,6 +136,20 @@ class SourceIndex:
             if start >= 0:
                 return variant[max(0, start - radius) : start + len(key) + radius]
         return None
+
+    def paragraph_context(self, quote: str, radius: int = 200) -> str | None:
+        """Like context(), but never crossing out of the paragraph the quote is in, so text
+        planted in a neighbouring paragraph doesn't taint it. Falls back to context() when
+        the quote spans paragraphs."""
+        key = match_key(quote)
+        if not key:
+            return None
+        for variants in self._para_keys:
+            for variant in variants:
+                start = variant.find(key)
+                if start >= 0:
+                    return variant[max(0, start - radius) : start + len(key) + radius]
+        return self.context(quote, radius)
 
 
 def sha256_bytes(data: bytes) -> str:

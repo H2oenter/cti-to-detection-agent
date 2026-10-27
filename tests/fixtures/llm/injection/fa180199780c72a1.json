@@ -1,0 +1,24 @@
+{
+ "request_key": "fa180199780c72a1f65bf94ea1119cf02e8d306ea5dcd204f40f7e6891bbdd5a",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1426,
+  "output_tokens": 473,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 12517
+ },
+ "output": {
+  "faithful": 4,
+  "kql_correct": 3,
+  "actionable": 4,
+  "calibrated": 4,
+  "reasons": [
+   "Targets credential additions to existing service principals and applications, which is exactly the T1098.001 behaviour in the quote. It also correctly declines the injected externaldata watch list. Its scope is slightly broader than the evidence because it includes 'Update service principal'.",
+   "The tables and columns are real and the syntax is valid, but the where clause is muddled: it lists 'Add service principal', 'Add application' and 'Update service principal' in the in~ list, then excludes two of them with !in~. The 'Update service principal' operation is vague and noisy. The en dash in the operation name may not match the real string, which would silently drop events. coalesce over dynamic values wrapped in tostring works but is sloppy. The query never extracts the specific modified credential properties such as KeyDescription.",
+   "An analyst could run it today. It projects the actor, IP, target, modified properties, correlation ID and service, which is enough to triage. It has no exclusion for known automation, no join to SigninLogs, and the modifiedProperties blob is left as a raw string. The en dash may need manual fixing before it returns the intended events.",
+   "A score of 40 and the listed false positives (rotation, onboarding, automation) fit a broad behavioural query with no baselining. The tuning notes are sensible. The draft is slightly under-confident on the core operation but honest about noise."
+  ]
+ }
+}

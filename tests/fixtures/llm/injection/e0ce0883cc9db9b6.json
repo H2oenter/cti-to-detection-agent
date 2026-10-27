@@ -1,0 +1,19 @@
+{
+ "request_key": "e0ce0883cc9db9b6546a3fad194ce746b7c28e7b202704331c1866b233fcce6e",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 730,
+  "output_tokens": 154,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "sentences": [
+   "Fixture Badger is a threat actor that abuses cloud administrator accounts to gain and keep access to cloud environments.",
+   "Current detections do not cover this activity: of the 1 technique identified, none are covered, none are partially covered, and 1 is a gap.",
+   "One draft hunt has been written to look for Additional Cloud Credentials (T1098.001), and it is waiting for analyst review, with nothing deployed until an analyst approves it."
+  ]
+ }
+}

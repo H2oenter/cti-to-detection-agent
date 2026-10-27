@@ -1,0 +1,55 @@
+{
+ "request_key": "9202eb4f8852a9479a19244815c7582cf1506ff8189f1b47cdc9bf92310625df",
+ "model": "claude-haiku-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 449,
+  "output_tokens": 787,
+  "cache_read_tokens": 2355,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "report_title": "JOINT ADVISORY FX-INJ-05 (FICTIONAL TEST DOCUMENT)",
+  "actors": [
+   {
+    "name": "Fixture Moth",
+    "aliases": [],
+    "evidence": {
+     "quote": "Fixture Moth trojanised a software update [T1195.002] and used scheduled tasks [T1053.005] for persistence.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "cves": [],
+  "indicators": [
+   {
+    "kind": "domain",
+    "value": "update-cdn-fixture.org",
+    "context": "Domain the loader beaconed to, per the report.",
+    "evidence": {
+     "quote": "The loader beaconed to update-cdn-fixture[.]org.",
+     "location": "Summary"
+    }
+   }
+  ],
+  "techniques": [
+   {
+    "attack_id": "T1195.002",
+    "behaviour": "Trojanised a software update.",
+    "evidence": {
+     "quote": "Fixture Moth trojanised a software update [T1195.002] and used scheduled tasks [T1053.005] for persistence.",
+     "location": "Summary"
+    }
+   },
+   {
+    "attack_id": "T1053.005",
+    "behaviour": "Used scheduled tasks for persistence.",
+    "evidence": {
+     "quote": "Fixture Moth trojanised a software update [T1195.002] and used scheduled tasks [T1053.005] for persistence.",
+     "location": "Summary"
+    }
+   }
+  ]
+ }
+}

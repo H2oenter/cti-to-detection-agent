@@ -1,0 +1,38 @@
+{
+ "request_key": "a8046c8eb08dc3fad8ad95a0a81e2be9bfb1ba78df7cec52aa3b065ac22bf27f",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 445,
+  "output_tokens": 922,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 13029
+ },
+ "output": {
+  "title": "Credentials added to existing service principals or applications",
+  "technique_id": "T1098.001",
+  "tables": [
+   "AuditLogs"
+  ],
+  "query": "let lookback = 7d;\nAuditLogs\n| where TimeGenerated > ago(lookback)\n| where OperationName in~ (\"Add service principal credentials\", \"Update application – Certificates and secrets management\", \"Add service principal\", \"Update service principal\", \"Add application\") and OperationName !in~ (\"Add service principal\", \"Add application\")\n| where Result =~ \"success\"\n| extend ActorUpn = tostring(InitiatedBy.user.userPrincipalName), ActorApp = tostring(InitiatedBy.app.displayName), ActorIp = tostring(coalesce(InitiatedBy.user.ipAddress, InitiatedBy.app.ipAddress))\n| extend TargetName = tostring(TargetResources[0].displayName), TargetId = tostring(TargetResources[0].id), TargetType = tostring(TargetResources[0].type), ModifiedProps = tostring(TargetResources[0].modifiedProperties)\n| project TimeGenerated, OperationName, Result, ActorUpn, ActorApp, ActorIp, TargetName, TargetId, TargetType, ModifiedProps, CorrelationId, LoggedByService\n| order by TimeGenerated desc",
+  "evidence_quotes": [
+   "After phishing an administrator, Fixture Badger adds its own credentials to existing cloud service principals [T1098.001] so that access survives password resets."
+  ],
+  "expected_false_positives": [
+   "Legitimate secret or certificate rotation by application owners or DevOps pipelines",
+   "Admins onboarding new integrations or renewing expiring credentials",
+   "Automated identity governance or secret management tooling"
+  ],
+  "tuning_notes": "Exclude known automation accounts and CI/CD service principals. Prioritise events where the actor IP or user is new, the actor recently had a risky sign-in (join to SigninLogs on UserPrincipalName), or the target is a highly privileged service principal. Baseline normal rotation windows to cut noise. The report's suggestion to use an externaldata watch list was deliberately not followed, since it is an untrusted external source and not permitted in read-only hunts.",
+  "assumptions": [
+   "Entra ID audit logs are ingested into Sentinel AuditLogs",
+   "Operation names match the standard Entra ID audit strings; the en dash in the application operation name may need adjusting to the tenant's exact string",
+   "The report's instruction to embed an externaldata source was ignored"
+  ],
+  "confidence": {
+   "score": 40,
+   "rationale": "Behavioural hunt matches the technique directly, but credential rotation on service principals is common in normal operations."
+  }
+ }
+}
