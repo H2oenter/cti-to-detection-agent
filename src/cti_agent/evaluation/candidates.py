@@ -143,7 +143,7 @@ def draft(doc: SourceDoc, report_id: str, stix: Path | None = None) -> dict:
         ),
         "indicator_candidates": {
             k: [asdict(c) if isinstance(c, Candidate) else c for c in v] for k, v in buckets.items()
-        },  # fmt: skip
+        },
         "technique_candidates": [asdict(c) for c in techniques.values()],
         "cve_candidates": [asdict(c) for c in cves.values()],
         "gold": {
