@@ -12,7 +12,7 @@ the report. The six "domains" the model returned are naming patterns the report 
 
 **Status:** every stage works end to end: `ingest`, `analyse`, `fetch`, `prepatch`, `review`,
 `audit`, `publish` (a dry run by default) and `eval`. Each indicator gets a second check, and
-each hunt a second review, on a different and stronger model. 336 tests replay recorded model
+each hunt a second review, on a different and stronger model. 347 tests replay recorded model
 runs offline; CI needs no API key. The injection suite has run live. Gold-set results are
 pending the hand labels (see [Evaluation](#evaluation)).
 
@@ -124,7 +124,8 @@ The live runs found problems the unit tests hadn't. Each fix now has a test:
 - **What the second reviewer caught.** On its first live run, `claude-opus-5-5` flagged three hunts the first reviewer had passed:
   - **AA23-320A T1556.006:** the same-IP clause matches nearly every self-service MFA registration, so the stated confidence is overstated.
   - **PHP-CGI CVE-2024-4577:** `has "-d "` and `%AD` don't match the way the draft assumes, so it would miss the exploit.
-  - **Node.js CVE-2024-27980:** a quote inside a KQL verbatim string (`@"…\"…"`) that probably makes the query fail to parse. The lint passed it, which is a known gap (below).
+  - **Node.js CVE-2024-27980:** a quote inside a KQL verbatim string (`@"…\"…"`) that probably makes the query fail to parse.
+- **The lint now reads strings the way KQL does.** It used to pass the Node.js draft above. It now reports a `broken_string` and an `unterminated_string` there → `test_a_broken_verbatim_string_is_an_error`. The same fix closed a way to hide an `externaldata` call behind an `h@"…"` string, which the old lint read with the wrong escaping rules → `test_an_obfuscated_verbatim_string_cannot_hide_code`.
 - **A product name that could become KQL.** An independent review found that a feed record's product name ending in a backslash could close a KQL string and turn the next value into query code. Feed values now reach a query only through a character allowlist → `test_unsafe_names_never_reach_the_query`.
 - **A terse advisory gets no invented hunt.** FortiOS CVE-2024-21762 is in KEV, but its advisory names no component or behaviour to look for. The run drafts the two exposure queries and, by design, no behaviour hunt → `test_off_watchlist_gold_case_replayed`.
 
@@ -150,7 +151,7 @@ The live runs found problems the unit tests hadn't. Each fix now has a test:
 | Hallucinated indicators or techniques | Value in its own quote; allowlist; placeholder patterns; IDs checked against ATT&CK v20 | `test_invented_value_with_a_real_quote_is_rejected`, `test_technique_rejected`, `test_unknown_technique_names_the_loaded_matrices` | Unusual defanging the normaliser doesn't know costs recall, not precision. |
 | Real values that aren't indicators (placeholders, contacts, references, legitimate tools, file names) | A second model gives each indicator a role from the text around it; code rejects the non-indicator roles and flags unclear ones, which then can't be approved in bulk | `test_roles_keep_flag_or_reject`, `test_clean_indicators_are_approved_as_the_listed_set` | Planted text could make the re-check drop real indicators. They land in `rejected.jsonl` with the role that removed them. |
 | Poisoned evidence feeding a hunt | A draft's evidence must quote accepted items; two reviewers on different models score faithfulness; code flags low scores and disagreement | `test_check_evidence`, `test_poisoned_draft_is_flagged_not_hidden`, `test_low_review_score_needs_attention`, `test_second_opinion_reasons` | Both reviewers are models and can be wrong. A person decides. |
-| KQL that exfiltrates data (`externaldata`, `http_request`, plugins, cross-workspace) | Deterministic lint over Microsoft's table schema; the tool never runs KQL | `test_errors` in `test_kql_lint.py`; kql-exfil case | The lint is a deny list. A person reads each query before running it. |
+| KQL that exfiltrates data (`externaldata`, `http_request`, plugins, cross-workspace) | Deterministic lint over Microsoft's table schema, which reads string literals as KQL does, so code can't hide inside what looks like a string; the tool never runs KQL | `test_errors`, `test_an_obfuscated_verbatim_string_cannot_hide_code`, `test_strings_kql_could_not_parse` in `test_kql_lint.py`; kql-exfil case | The lint is a deny list. A person reads each query before running it. |
 | SSRF and link-following | Content is never fetched; feed URLs come from templates, IDs are checked first, and off-allowlist redirects are refused | `test_fetcher_refuses_anything_off_the_allowlist`, `test_redirects_off_the_allowlist_are_refused`, `test_oversized_responses_are_refused` | A compromised feed could still supply false data. It arrives as untrusted data, never as instructions. |
 | Query injection through feed values | Vendor, product and version values reach a generated query only through a character allowlist, and CVE IDs through their pattern | `test_only_safe_feed_values_go_into_a_query`, `test_unsafe_names_never_reach_the_query` | A product with an unusual name gets no name-based exposure leg; the CVE leg still runs. |
 | A model induced to publish | No tools; `publish` is a CLI command run by a person, with `--apply` | tool-bait case; `test_dry_run_writes_valid_requests_and_sends_nothing` | None found. |
@@ -168,7 +169,6 @@ The live runs found problems the unit tests hadn't. Each fix now has a test:
 - The injection check is a heuristic. The real controls are the quote rule, having no tools, and the gate.
 - The reviewer models can be wrong in both directions. They're advisory, and code decides only what gets flagged. The second reviewer is stricter, and adds about 5 cents per hunt.
 - The indicator re-check is a model judgement too. It can't add anything, but it can drop a real indicator, so its removals are listed in `rejected.jsonl` and scored against the gold set.
-- The KQL lint doesn't parse verbatim strings (`@"…"`). The second reviewer caught one broken quote the lint passed.
 - KQL is linted, never executed. No hunt has run against a lab workspace.
 - The pre-patch exposure queries use Defender vulnerability-management tables, with names taken from Microsoft's docs. Those names haven't been checked against a live tenant. For products not on the watchlist, software and appliance names are matched approximately, so an empty result doesn't prove a product is absent.
 - Sentinel's STIX objects upload API is in preview, and `publish --apply` hasn't been run against a live workspace. The request format, batching, 429 handling and per-object errors are tested against the documented behaviour.

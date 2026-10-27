@@ -62,13 +62,15 @@ def inbox_with(settings, cve, description=None):
 
 
 @pytest.mark.parametrize(
-    ("cve", "process", "fixed"),
+    ("cve", "process", "fixed", "lint_errors"),
     [
-        ("CVE-2024-4577", "php", "8.1.29"),
-        ("CVE-2024-27980", "node.exe", "20.12.2"),
+        ("CVE-2024-4577", "php", "8.1.29", []),
+        # The recorded Node.js draft writes \" inside @"...", where it ends the string: the
+        # second reviewer spotted it first, and now the lint does too.
+        ("CVE-2024-27980", "node.exe", "20.12.2", ["broken_string", "unterminated_string"]),
     ],
 )
-def test_gold_case_replayed(feed_settings, attack, cve, process, fixed):
+def test_gold_case_replayed(feed_settings, attack, cve, process, fixed, lint_errors):
     inbox_with(feed_settings, cve)
     result = run_prepatch(
         cve, feed_settings, ReplayClient(FIXTURES / "llm" / f"prepatch-{cve}"),
@@ -79,7 +81,10 @@ def test_gold_case_replayed(feed_settings, attack, cve, process, fixed):
     assert f'parse_version("{fixed}")' in exposure.draft.query
     assert behaviour.kind == "behaviour" and behaviour.review is not None
     assert process in behaviour.draft.query.lower()
-    assert not exposure.lint_failed and not behaviour.lint_failed
+    assert not exposure.lint_failed
+    assert [f.code for f in behaviour.lint if f.severity == "error"] == lint_errors
+    if lint_errors:  # it can't be approved until someone edits it
+        assert behaviour.needs_attention and behaviour.attention_reasons[0].startswith("lint")
     assert fixed in result.retire_when and "2026-11-26" in result.retire_when
     assert all(h.retire_when == result.retire_when for h in result.hunts)
 

@@ -125,6 +125,61 @@ def test_strip_literals():
     assert strip_literals('a "x // y" b // tail\nc') == 'a "" b \nc'
     assert strip_literals("h'secret' @\"C:\\\" z") == '"" "" z'
     assert strip_literals("x = 'it\\'s'") == 'x = ""'
+    assert strip_literals('x = @"say ""hi"" now" y') == 'x = "" y'  # doubled quotes inside
+
+
+NODE_LINE = r'| where ProcessCommandLine matches regex @"(?i)\.(bat|cmd)\"?\s"'
+
+
+def test_a_broken_verbatim_string_is_an_error():
+    """Regression: the second reviewer caught this in a real CVE-2024-27980 draft. In @"..."
+    the backslash doesn't escape the quote, so the string ends at \\" and ?\\s" is left over."""
+    query = f"DeviceProcessEvents\n| where Timestamp > ago(1d)\n{NODE_LINE}\n| take 10"
+    findings = {f.code: f.message for f in lint_kql(query, ["DeviceProcessEvents"], SCHEMA)
+                if f.severity == "error"}  # fmt: skip
+    assert set(findings) == {"broken_string", "unterminated_string"}
+    assert r'(bat|cmd)\"?\s"' in findings["broken_string"]
+    assert "write a quote inside it as" in findings["broken_string"]
+
+
+@pytest.mark.parametrize(
+    ("snippet", "code"),
+    [
+        ('"abc"def', "broken_string"),
+        ("'one\ntwo'", "unterminated_string"),
+        ('@"no end', "unterminated_string"),
+        ("```never closed", "unterminated_string"),
+    ],
+)
+def test_strings_kql_could_not_parse(snippet, code):
+    query = f"DeviceProcessEvents | where Timestamp > ago(1d) | where FileName == {snippet}"
+    assert code in codes(lint_kql(query, ["DeviceProcessEvents"], SCHEMA), "error")
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        r'@"C:\Windows\Temp\"',  # a verbatim string can end in a backslash
+        '@"say ""hi"""',
+        r'"a\"b"',
+        "h'secret'",
+        "```one\ntwo```",
+    ],
+)
+def test_strings_kql_reads_fine_stay_clean(snippet):
+    query = f"DeviceProcessEvents | where Timestamp > ago(1d) | where FileName == {snippet}"
+    assert codes(lint_kql(query, ["DeviceProcessEvents"], SCHEMA), "error") == []
+
+
+def test_an_obfuscated_verbatim_string_cannot_hide_code():
+    """h@"..." is verbatim too. Read with backslash escapes, the string below would seem to
+    run on to the quote in the trailing comment and hide the externaldata call."""
+    query = (
+        "DeviceProcessEvents | where Timestamp > ago(1d)\n"
+        '| where FolderPath has h@"C:\\x\\" | join (externaldata(u:string) '
+        "[@'https://hunt.canary.example/x']) on $left.FolderPath == $right.u //\""
+    )
+    assert "external_data" in codes(lint_kql(query, ["DeviceProcessEvents"], SCHEMA), "error")
 
 
 def test_schema_has_the_tables_hunts_need():

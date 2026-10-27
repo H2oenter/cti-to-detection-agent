@@ -50,7 +50,26 @@ class KqlSchema:
 
 def strip_literals(query: str) -> str:
     """Replace string literals with "" and drop // comments, so checks only see code."""
+    return scan_literals(query)[0]
+
+
+# After a string closes, KQL expects a space, an operator or punctuation. A letter, digit, "?",
+# a backslash or "@" means the string ended earlier than its author thought.
+_RUNS_ON = re.compile(r"[A-Za-z0-9_?\\@]")
+
+
+def scan_literals(query: str) -> tuple[str, list[LintFinding]]:
+    """Read string literals the way KQL does, so the checks see the same code KQL would run.
+
+    "..." and '...' take backslash escapes. @"..." is verbatim: a backslash is just a
+    character, and a quote inside is written twice (""). An h or H in front hides the value
+    in logs and doesn't change the rules. None of these can span lines; ``` ... ``` can.
+    Returns the query with each literal replaced by "" and // comments dropped, plus an
+    error for each literal KQL couldn't parse. A literal the lint reads differently from KQL
+    could hide code from the checks, so these are errors, not warnings.
+    """
     out: list[str] = []
+    findings: list[LintFinding] = []
     i, n = 0, len(query)
     while i < n:
         if query.startswith("//", i):
@@ -59,33 +78,85 @@ def strip_literals(query: str) -> str:
             continue
         if query.startswith("```", i):
             end = query.find("```", i + 3)
+            if end < 0:
+                findings.append(_unterminated(query[i : i + 40]))
             i = n if end < 0 else end + 3
             out.append('""')
             continue
-        char = query[i]
-        prefixed = (
-            char in "@hH" and i + 1 < n and query[i + 1] in "\"'"
-            and (i == 0 or not (query[i - 1].isalnum() or query[i - 1] == "_"))
-        )  # fmt: skip
-        if char in "\"'" or prefixed:
-            start = i + 1 if prefixed else i
-            quote = query[start]
-            j = start + 1
-            while j < n and query[j] != quote:
-                j += 2 if (query[j] == "\\" and char != "@") else 1
-            i = j + 1
-            out.append('""')
+        found = _literal_at(query, i)
+        if found is None:
+            out.append(query[i])
+            i += 1
             continue
-        out.append(char)
-        i += 1
-    return "".join(out)
+        start, verbatim = found
+        quote, k, closed = query[start], start + 1, False
+        while k < n and query[k] not in "\r\n":
+            if query[k] == quote:
+                if verbatim and query.startswith(quote * 2, k):
+                    k += 2  # a doubled quote inside @"...": one quote character
+                    continue
+                closed = True
+                break
+            k += 2 if (query[k] == "\\" and not verbatim) else 1
+        out.append('""')
+        line_start = max(query.rfind("\n", 0, i), query.rfind("\r", 0, i)) + 1
+        if not closed:
+            findings.append(_unterminated(query[max(i - 24, line_start) : k]))
+            i = k  # carry on from the line break
+            continue
+        i = k + 1
+        if i < n and _RUNS_ON.match(query[i]):
+            line_end = min((e for e in (query.find("\n", i), query.find("\r", i)) if e >= 0),
+                           default=n)  # fmt: skip
+            hint = (
+                '; inside @"..." a backslash doesn\'t escape a quote, so the string ends there: '
+                'write a quote inside it as ""'
+                if verbatim and query[k - 1] == "\\"
+                else ""
+            )
+            findings.append(
+                LintFinding(
+                    severity="error",
+                    code="broken_string",
+                    message=f"text runs straight on after a string closes: "
+                    f"{_snippet(query[max(i - 24, line_start) : min(i + 8, line_end)])}{hint}",
+                )
+            )
+    return "".join(out), findings
+
+
+def _literal_at(query: str, i: int) -> tuple[int, bool] | None:
+    """If a string literal starts at i, (index of its opening quote, verbatim)."""
+    if query[i] in "\"'":
+        return i, False
+    if i > 0 and (query[i - 1].isalnum() or query[i - 1] == "_"):
+        return None  # the h in "with" doesn't start a string
+    j = i + 1 if query[i] in "hH" else i
+    verbatim = query.startswith("@", j)
+    j += 1 if verbatim else 0
+    if j < len(query) and query[j] in "\"'" and j > i:
+        return j, verbatim
+    return None
+
+
+def _unterminated(text: str) -> LintFinding:
+    return LintFinding(
+        severity="error",
+        code="unterminated_string",
+        message=f"a string isn't closed before the end of its line: {_snippet(text)}; KQL "
+        "strings can't span lines (``` ... ``` can)",
+    )
+
+
+def _snippet(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= 40 else text[:37] + "..."
 
 
 def lint_kql(query: str, declared_tables: list[str], schema: KqlSchema) -> list[LintFinding]:
-    findings: list[LintFinding] = []
     if not query.strip():
         return [LintFinding(severity="error", code="empty_query", message="the query is empty")]
-    code = strip_literals(query)
+    code, findings = scan_literals(query)
 
     for pattern, code_name, message in FORBIDDEN:
         if pattern.search(code):
