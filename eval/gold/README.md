@@ -10,23 +10,32 @@ A gold file says what a person, not the tool, believes a report contains. `cti-a
    .venv/Scripts/python scripts/gold_draft.py reports/aa26-222a.pdf --stix reports/aa26-222a-stix.json
    ```
    (On Linux or macOS, use `.venv/bin/python`.)
-3. Open `eval/gold/<id>.draft.json` with the report beside it. The helper has already:
-   - pre-filled `gold.indicators` with values found in **both** the text and CISA's STIX;
-   - pre-filled `gold.techniques` with every technique ID printed in the text;
-   - left everything else in `indicator_candidates.text_only` for you to decide.
-4. Apply the rules below to the draft's `gold` section. Then fill in `title`, `source.url`, `actors`, `labelled_by` and `labelled_on` (a date: `2026-11-02`).
-5. Save it as a gold file:
+   That writes `eval/gold/<id>.draft.json`: every indicator-like value, technique ID and CVE in the report text, each with its page and the text around it.
+3. Open the report PDF, then label the draft:
    ```bash
-   .venv/Scripts/python scripts/gold_draft.py --finish eval/gold/aa26-222a.draft.json
+   .venv/Scripts/python scripts/gold_draft.py --label eval/gold/aa26-222a.draft.json
    ```
-   This checks the section the way the eval will read it, and then writes `eval/gold/aa26-222a.json`. It writes nothing if:
-   - any of those fields is blank;
-   - a value or ID doesn't parse;
-   - something is both required and optional;
-   - the report has changed since the draft was made.
+   It shows one candidate at a time. Read that page of the report, apply the rules below, and press one key:
 
-   It also points out any part still exactly as the helper pre-filled it. That can be right, but check it. To redo a saved file, edit the draft and finish again with `--force`.
-6. Don't run the tool on the report or look at its output until you've finished labelling. Labels have to be independent of the thing they measure.
+   | Key | Indicator | Technique | CVE |
+   | --- | --- | --- | --- |
+   | `g` | gold | required | keep |
+   | `o` | optional | optional | |
+   | `x` | out | out | out |
+
+   - Each section starts with a short reminder of its rules. Values also found in CISA's STIX are marked, and values found *only* in the STIX are left out without asking.
+   - `b` goes back, `s` skips for now, and `q` stops. Every decision is saved as you make it, so you can stop at any point; the next `--label` picks up where you left off. Add `--all` to go through decided ones again.
+   - When every candidate is decided, it asks for the title, advisory URL, actors, your name, the date and any notes.
+   - Then it checks the labels the way the eval will read them and saves `eval/gold/<id>.json`. It writes nothing if:
+     - a field is blank;
+     - a value or ID doesn't parse;
+     - something is both required and optional;
+     - the report has changed since the draft was made.
+   - It points out any section left exactly as the helper pre-filled it. That can be right, but check it.
+   - To redo a saved file, run `--label --all --force`.
+4. Don't run the tool on the report or look at its output until you've finished labelling. Labels have to be independent of the thing they measure.
+
+If you'd rather edit the draft's `gold` section by hand, `--finish eval/gold/<id>.draft.json` runs the same checks and saves it. Running the first command again on a report won't overwrite a draft that holds decisions, unless you pass `--force`.
 
 ## Rules
 
