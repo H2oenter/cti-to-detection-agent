@@ -1,12 +1,13 @@
 """End-to-end ingest with no network: a fake model, then record and replay."""
 
 import json
+import re
 import sqlite3
 from collections import Counter
 
 import pytest
 import stix2
-from conftest import BAD_ITEMS, FIXTURE_REPORT, GOOD_ITEMS, FakeModel
+from conftest import BAD_ITEMS, FIXTURE_REPORT, FIXTURES, GOOD_ITEMS, FakeModel
 
 from cti_agent.llm.client import RecordingClient, ReplayClient
 from cti_agent.pipeline import IngestBlocked, run_ingest
@@ -111,6 +112,23 @@ def test_record_then_replay_gives_identical_results(settings, tmp_path, attack_i
     replayed = [line for line in read_trace(second.out_dir / "trace.jsonl")
                 if line["stage"] == "collector"]  # fmt: skip
     assert all(line["detail"].startswith("replayed") for line in replayed)
+
+
+RECORD_FIELDS = {"request_key", "model", "stop_reason", "detail", "usage", "output"}
+USAGE_FIELDS = {"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"}
+CREDENTIAL = re.compile(r"sk-ant-|wrkspc_|x-api-key|anthropic-workspace-id|Bearer ey", re.I)
+
+
+def test_committed_recordings_hold_no_credentials():
+    """Design rule 7: a recording is the model's output and token counts, nothing else."""
+    recordings = sorted((FIXTURES / "llm").rglob("*.json"))
+    assert len(recordings) > 20
+    for path in recordings:
+        text = path.read_text(encoding="utf-8")
+        record = json.loads(text)
+        assert set(record) == RECORD_FIELDS, path
+        assert set(record["usage"]) <= USAGE_FIELDS, path
+        assert not CREDENTIAL.search(text), path
 
 
 def test_replay_fills_gaps_from_a_fallback(settings, tmp_path, attack_index):
