@@ -1,0 +1,41 @@
+{
+ "request_key": "2c67eb474aaa78a5f7e97e2f1ce8213100affde8a13ec68ddeab59c0ab0954c3",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 382,
+  "output_tokens": 1148,
+  "cache_read_tokens": 13029,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "title": "New identity creation in Entra ID and on endpoints (Scattered Spider T1136)",
+  "technique_id": "T1136",
+  "tables": [
+   "AuditLogs",
+   "DeviceProcessEvents"
+  ],
+  "query": "let lookback = 7d;\nlet cloudCreates = AuditLogs\n| where TimeGenerated > ago(lookback)\n| where OperationName in~ (\"Add user\", \"Invite external user\", \"Add service principal\", \"Add application\")\n| where Result =~ \"success\"\n| extend Actor = coalesce(tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))\n| extend ActorIp = tostring(InitiatedBy.user.ipAddress)\n| extend Target = tostring(TargetResources[0].userPrincipalName), TargetName = tostring(TargetResources[0].displayName)\n| project TimeGenerated, Source=\"EntraID\", Operation=OperationName, Actor, ActorIp, Target, TargetName, Detail=\"\";\nlet localCreates = DeviceProcessEvents\n| where Timestamp > ago(lookback)\n| where (FileName in~ (\"net.exe\", \"net1.exe\") and ProcessCommandLine has_all (\"user\", \"/add\"))\n    or (FileName in~ (\"powershell.exe\", \"pwsh.exe\") and ProcessCommandLine has_any (\"New-LocalUser\", \"New-ADUser\"))\n    or (FileName =~ \"dsadd.exe\" and ProcessCommandLine has \"user\")\n| project TimeGenerated=Timestamp, Source=\"Endpoint\", Operation=\"ProcessCreateAccount\", Actor=strcat(AccountDomain, \"\\\\\", AccountName), ActorIp=\"\", Target=DeviceName, TargetName=\"\", Detail=ProcessCommandLine;\nunion cloudCreates, localCreates\n| order by TimeGenerated desc",
+  "evidence_quotes": [
+   "This is sometimes achieved by creating new identities in the environment [T1136] and is often upheld with"
+  ],
+  "expected_false_positives": [
+   "HR onboarding and identity provisioning automation creating users",
+   "Helpdesk staff creating accounts or inviting guest users",
+   "Admin scripts or IT tooling creating local service accounts",
+   "App registrations by developers"
+  ],
+  "tuning_notes": "Exclude known provisioning accounts and service principals, and the admin workstations or jump hosts that normally create accounts. Prioritise creations by actors who are not in the identity admin group, outside business hours, from unfamiliar IPs, or followed by role assignment or MFA registration. Correlate with helpdesk tickets and onboarding records.",
+  "assumptions": [
+   "Entra ID audit logs are ingested into Sentinel AuditLogs",
+   "Defender for Endpoint is onboarded and records process command lines",
+   "The report only states that new identities are created, so the query covers Entra and local or AD creation broadly",
+   "Domain controller account creation via Windows Security event 4720 is not in the allowed tables, so net/PowerShell process activity is used as a proxy"
+  ],
+  "confidence": {
+   "score": 35,
+   "rationale": "Account creation is common in normal operations and the evidence gives no specific tooling, so hits need context to separate malicious from routine."
+  }
+ }
+}

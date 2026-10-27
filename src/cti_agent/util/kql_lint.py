@@ -170,7 +170,7 @@ def _sources(code: str) -> list[str]:
             prev is None
             or prev == ";"
             or (prev == "=" and _is_let(tokens, i - 2))
-            or (prev == "(" and _opens_subquery(tokens, i - 1))
+            or (prev == "(" and _opens_subquery(tokens, i - 1, nxt))
             or (in_union and prev in ("union", ","))
             or (prev in ("join", "lookup"))
         )
@@ -183,9 +183,17 @@ def _is_let(tokens: list[str], name_index: int) -> bool:
     return name_index >= 1 and tokens[name_index - 1] == "let"
 
 
-def _opens_subquery(tokens: list[str], paren_index: int) -> bool:
-    before = tokens[paren_index - 1] if paren_index else None
-    return before is None or not _IDENT.match(before) or before in ("in", "join", "lookup")
+def _opens_subquery(tokens: list[str], paren_index: int, nxt: str | None) -> bool:
+    """Does this "(" hold a subquery, as in "in (T | ...)" or "join kind=inner (T | ...)"?"""
+    j = paren_index - 1
+    while j >= 2 and tokens[j - 1] == "=":  # skip parameters such as kind=inner
+        j -= 3
+    before = tokens[j] if j >= 0 else None
+    if before in ("in", "join", "lookup"):
+        return True
+    # A bare parenthesis is a subquery only when a pipe follows the name: "(T | where ...)".
+    # Without that, "(RegTime - 1h)" would read as a table called RegTime.
+    return (before is None or not _IDENT.match(before)) and nxt == "|"
 
 
 _KEYWORDS = {

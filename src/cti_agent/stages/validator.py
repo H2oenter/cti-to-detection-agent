@@ -183,6 +183,7 @@ class _Validator:
                 page=page,
                 warnings=warnings,
                 item_hash=item_hash(normalised),
+                context=self.source.surrounding(normalised.evidence.quote),
             )
         )
 

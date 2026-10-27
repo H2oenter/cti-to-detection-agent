@@ -1,0 +1,24 @@
+{
+ "request_key": "f5b7bbaea6eab1e281f1665d7dfdeb97d59212bde973146cdf376b7bc75a8e3b",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1578,
+  "output_tokens": 492,
+  "cache_read_tokens": 12517,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "faithful": 3,
+  "kql_correct": 3,
+  "actionable": 3,
+  "calibrated": 4,
+  "reasons": [
+   "The evidence only says help desk staff are talked into resetting passwords or transferring MFA tokens. Admin-driven MFA or password change followed by sign-in is a reasonable proxy, but the title promises 'from new IP' and the query never checks for a new IP, so the hunt claims more than it does.",
+   "The tables and columns are real and the join is syntactically sound. However, it joins on TargetUpn without lowercasing, so case mismatches drop matches. The 'Admin ...' and 'by admin' filters miss self-service resets, and 'Reset user password' is not a verified operation name. Result is projected but not summarized. The ChangeTime..+4h window is correct. The 'new IP' logic described in the title is missing.",
+   "An analyst can run it today and get change time, actor, target and sign-in IPs, locations and apps. But it returns every admin-initiated change followed by a sign-in, with no baseline or new-IP comparison and no help desk actor filter, so triage is noisy. Tuning is left to the analyst. Projected columns omit the sign-in risk level and user agent, which were available.",
+   "A 40 confidence score and the listed false positives (routine help desk resets, onboarding) honestly fit a broad proxy query. The assumptions openly admit the phone call is not visible. Confidence is slightly generous given the missing new-IP logic, but it is reasonably calibrated."
+  ]
+ }
+}

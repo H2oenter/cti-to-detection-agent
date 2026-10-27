@@ -111,3 +111,22 @@ def test_record_then_replay_gives_identical_results(settings, tmp_path, attack_i
     replayed = [line for line in read_trace(second.out_dir / "trace.jsonl")
                 if line["stage"] == "collector"]  # fmt: skip
     assert all(line["detail"].startswith("replayed") for line in replayed)
+
+
+def test_replay_fills_gaps_from_a_fallback(settings, tmp_path, attack_index):
+    fixtures = tmp_path / "llm"
+    live = FakeModel()
+    first = run_ingest(
+        FIXTURE_REPORT, "CLEAR", settings, ReplayClient(fixtures, fallback=live),
+        attack=attack_index,
+    )  # fmt: skip
+    assert len(live.calls) == 1 and list(fixtures.glob("*.json"))
+    # Now everything is recorded: no fallback needed, same answers.
+    second = run_ingest(
+        FIXTURE_REPORT, "CLEAR", settings, ReplayClient(fixtures, fallback=live),
+        attack=attack_index,
+    )  # fmt: skip
+    assert len(live.calls) == 1
+    assert sorted(a.item_hash for a in first.validation.accepted) == sorted(
+        a.item_hash for a in second.validation.accepted
+    )

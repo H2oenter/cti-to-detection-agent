@@ -122,6 +122,8 @@ class AcceptedItem(BaseModel):
     page: int | None = None  # computed by the validator from where the quote matched
     warnings: list[str] = Field(default_factory=list)
     item_hash: str
+    # Source text around the matched quote, so later stages see what the quote was part of.
+    context: str | None = None
 
 
 class Rejection(BaseModel):

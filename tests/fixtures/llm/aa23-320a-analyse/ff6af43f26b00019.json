@@ -1,0 +1,40 @@
+{
+ "request_key": "ff6af43f26b00019f1de0ddf1587f54d0d03be7a8cb977409fc06831b13ba099",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 459,
+  "output_tokens": 1192,
+  "cache_read_tokens": 13029,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "title": "Possible actor-installed ETL tool or serverless function execution on endpoints and cloud apps",
+  "technique_id": "T1648",
+  "tables": [
+   "DeviceProcessEvents",
+   "CloudAppEvents"
+  ],
+  "query": "let lookback = 7d;\nlet etlTools = dynamic([\"airbyte\",\"fivetran\",\"stitch\",\"talend\",\"meltano\",\"singer-io\",\"dbt\",\"nifi\",\"pentaho\",\"kettle\",\"informatica\",\"matillion\",\"rclone\"]);\nlet proc = DeviceProcessEvents\n| where Timestamp > ago(lookback)\n| where FileName has_any (etlTools) or ProcessCommandLine has_any (etlTools) or ProcessCommandLine has_any (\"aws lambda create-function\",\"aws lambda invoke\",\"aws lambda update-function-code\",\"aws glue create-job\",\"aws glue start-job-run\",\"aws datapipeline\")\n| project Timestamp, Source=\"Endpoint\", DeviceName, Account=AccountName, FileName, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine;\nlet cloud = CloudAppEvents\n| where Timestamp > ago(lookback)\n| where ActionType has_any (\"CreateFunction\",\"UpdateFunctionCode\",\"Invoke\",\"CreateJob\",\"StartJobRun\",\"CreatePipeline\",\"CreateDataFlow\")\n| project Timestamp, Source=\"CloudApp\", DeviceName=tostring(IPAddress), Account=AccountDisplayName, FileName=Application, ProcessCommandLine=ActionType, InitiatingProcessFileName=UserAgent, InitiatingProcessCommandLine=ObjectName;\nunion proc, cloud\n| order by Timestamp desc",
+  "evidence_quotes": [
+   "Scattered Spider threat actors use actor-installed extract, transform, and load (ETL) tools [T1648] to bring"
+  ],
+  "expected_false_positives": [
+   "Data engineering teams legitimately running Airbyte, dbt, NiFi, Talend or similar ETL tools",
+   "Developers and CI/CD pipelines deploying or invoking Lambda, Glue or Azure Functions",
+   "rclone used by admins for approved backups or migrations"
+  ],
+  "tuning_notes": "Baseline approved ETL tools, hosts and service accounts and exclude them. Prioritise hits on hosts or accounts that do not normally run data engineering workloads, hits shortly after new logons or EC2 creation, and first-time function creation by a user. Remove very broad terms like dbt if noisy, and adjust the ActionType list to the connectors that ingest your cloud logs.",
+  "assumptions": [
+   "Defender for Endpoint covers the EC2 or Windows or Linux hosts where ETL tools might be installed",
+   "CloudAppEvents ingests AWS or Azure activity via Defender for Cloud Apps connectors with ActionType values similar to API names",
+   "Sentinel AWS tables are not in the allowed list, so CloudAppEvents is the closest cloud table and may have limited AWS coverage",
+   "Evidence is thin, so tool names are a generic ETL list and not specific to this actor"
+  ],
+  "confidence": {
+   "score": 30,
+   "rationale": "The report names only generic ETL tools with no specifics, so hits are mostly legitimate data engineering."
+  }
+ }
+}

@@ -102,27 +102,41 @@ def ingest(
         console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
         raise typer.Exit(code=3) from None
     _print_ingest(result)
-    if replay:
-        console.print(REPLAY_NOTE)
+    _replay_note(replay, record)
 
 
 def _make_client(settings: Settings, replay: Path | None, record: Path | None) -> LLMClient:
-    client: LLMClient
+    """--replay: offline. --record: live, saving every response. Both, with one folder:
+    replay what is recorded and call the API only for what is missing, recording it."""
+    if replay and record:
+        if replay.resolve() != record.resolve():
+            raise typer.BadParameter("to fill gaps, give --replay and --record the same folder")
+        return ReplayClient(replay, fallback=_live_client(settings))
     if replay:
-        client = ReplayClient(replay)
-    else:
-        key = settings.anthropic_api_key
-        client = AnthropicClient(
-            api_key=key.get_secret_value() if key else None,
-            workspace_id=settings.anthropic_workspace_id,
-        )
+        return ReplayClient(replay)
+    client = _live_client(settings)
     return RecordingClient(client, record) if record else client
 
 
-REPLAY_NOTE = (
-    "[dim]Replayed recorded responses: token counts and cost are from the original "
-    "run. Nothing was sent to the API.[/dim]"
-)
+def _live_client(settings: Settings) -> AnthropicClient:
+    key = settings.anthropic_api_key
+    return AnthropicClient(
+        api_key=key.get_secret_value() if key else None,
+        workspace_id=settings.anthropic_workspace_id,
+    )
+
+
+def _replay_note(replay: Path | None, record: Path | None) -> None:
+    if replay and record:
+        console.print(
+            "[dim]Recorded responses were replayed; missing ones were fetched live and "
+            "recorded.[/dim]"
+        )
+    elif replay:
+        console.print(
+            "[dim]Replayed recorded responses: token counts and cost are from the original "
+            "run. Nothing was sent to the API.[/dim]"
+        )
 
 
 def _label_value(item_type: str, item: dict) -> tuple[str, str]:
@@ -202,8 +216,7 @@ def analyse(
         console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
         raise typer.Exit(code=3) from None
     _print_analysis(analysis, settings.out_dir / run_id)
-    if replay:
-        console.print(REPLAY_NOTE)
+    _replay_note(replay, record)
 
 
 def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:

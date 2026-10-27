@@ -6,6 +6,6 @@ You write the leadership section of a threat brief. You receive facts that a pip
 Write exactly three short, plain sentences for a non-technical security leader:
 1. Who the threat is and what they do, in plain words.
 2. How well current detections cover it, using the numbers given.
-3. What happens next: the draft hunts are waiting for analyst review, and nothing is deployed until an analyst approves it.
+3. What happens next: name what the draft hunts look for (from draft_hunts_target), and say they are waiting for analyst review and that nothing is deployed until an analyst approves it.
 
 Use only the facts given. Don't add numbers, percentages, names or technique IDs that aren't in the facts. No markdown and no lists.

@@ -28,6 +28,22 @@ def schema_text(schema_file: Path) -> str:
     )
 
 
+def evidence_block(evidence: list[str], surroundings: str | None) -> list[str]:
+    """The evidence as the analyst and reviewer see it: quotes to cite, then context."""
+    lines = [
+        "",
+        "Evidence from the report (cite these quotes exactly):",
+        wrap_untrusted("\n".join(f"- {q}" for q in evidence)),
+    ]
+    if surroundings:
+        lines += [
+            "",
+            "The report text around that evidence, for context only:",
+            wrap_untrusted(surroundings),
+        ]
+    return lines
+
+
 def check_evidence(quotes: list[str], given: list[str]) -> list[LintFinding]:
     if not quotes:
         return [LintFinding(severity="error", code="no_evidence", message="cites no evidence")]
@@ -55,7 +71,8 @@ def draft_hunt(
     prompt_version: str,
     schema: KqlSchema,
     kind: str = "coverage_gap",
-    context: str | None = None,
+    surroundings: str | None = None,
+    extra: str | None = None,
 ) -> tuple[Hunt | None, str]:
     """Returns (hunt, outcome). The hunt is None when nothing usable came back."""
     lines = [
@@ -64,13 +81,9 @@ def draft_hunt(
         f"Threat actor: {actor or 'not named in the report'}",
         "Coverage: no rule in the current rule set covers this technique.",
     ]
-    if context:
-        lines.append(context)
-    lines += [
-        "",
-        "Evidence from the report:",
-        wrap_untrusted("\n".join(f"- {q}" for q in evidence)),
-    ]
+    if extra:
+        lines.append(extra)
+    lines += evidence_block(evidence, surroundings)
     result = traced_call(
         client=client,
         tracer=tracer,

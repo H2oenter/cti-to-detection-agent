@@ -1,0 +1,40 @@
+{
+ "request_key": "fd7b46a953e276db4e02f20e997a56795316c53e3dd83baa7d75ee0beeaa8e38",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 356,
+  "output_tokens": 1147,
+  "cache_read_tokens": 13029,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "title": "Help desk-driven MFA method registration followed by sign-in from new IP (Scattered Spider social engineering)",
+  "technique_id": "T1199",
+  "tables": [
+   "AuditLogs",
+   "SigninLogs"
+  ],
+  "query": "let lookback = 7d;\nlet mfaChanges = AuditLogs\n| where TimeGenerated > ago(lookback)\n| where OperationName in~ (\"User registered security info\", \"Admin registered security info\", \"User deleted security info\", \"Admin deleted security info\", \"Reset password (by admin)\", \"Reset user password\", \"Admin updated security info\")\n| extend Actor = tostring(InitiatedBy.user.userPrincipalName), ActorIp = tostring(InitiatedBy.user.ipAddress)\n| extend TargetUpn = tostring(TargetResources[0].userPrincipalName)\n| where isnotempty(TargetUpn)\n| where OperationName startswith \"Admin\" or OperationName has \"by admin\" or (isnotempty(Actor) and tolower(Actor) != tolower(TargetUpn))\n| project ChangeTime = TimeGenerated, OperationName, Actor, ActorIp, TargetUpn, Result;\nmfaChanges\n| join kind=inner (\n    SigninLogs\n    | where TimeGenerated > ago(lookback)\n    | where ResultType == 0\n    | project SigninTime = TimeGenerated, UserPrincipalName, SigninIp = IPAddress, Location, AppDisplayName, UserAgent, RiskLevelDuringSignIn\n) on $left.TargetUpn == $right.UserPrincipalName\n| where SigninTime between (ChangeTime .. ChangeTime + 4h)\n| summarize FirstSignin = min(SigninTime), SigninIps = make_set(SigninIp, 10), Locations = make_set(Location, 10), Apps = make_set(AppDisplayName, 10) by ChangeTime, OperationName, Actor, ActorIp, TargetUpn, Result\n| order by ChangeTime desc",
+  "evidence_quotes": [
+   "transfer MFA tokens [T1078.002] [T1199] [T1566.004]."
+  ],
+  "expected_false_positives": [
+   "Legitimate help desk password resets and MFA re-enrolment for users who lost or replaced a phone",
+   "New-hire onboarding where admins register MFA methods",
+   "Users signing in right after a legitimate reset from their normal location"
+  ],
+  "tuning_notes": "Restrict Actor to your help desk accounts or groups and alert when the subsequent sign-in IP or country differs from the user's baseline, or when the sign-in is not from a compliant device. Exclude onboarding automation accounts. Add a check that the sign-in IP is unseen in the prior 30 days for the user.",
+  "assumptions": [
+   "Entra ID audit and sign-in logs are ingested into Sentinel",
+   "The operation names match the tenant's AuditLogs OperationName values",
+   "No table records the help desk phone call itself, so this is a proxy based on MFA and password changes by an admin",
+   "Actor and target field paths in InitiatedBy and TargetResources follow the standard schema"
+  ],
+  "confidence": {
+   "score": 40,
+   "rationale": "Admin-initiated MFA or password changes followed by sign-in is a reasonable proxy for help desk social engineering but matches much routine support activity."
+  }
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "request_key": "ef0dee7d273a8a851d4d751d3456efc3a167adbf2ae9b6a206d47fb1a663ae15",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1522,
+  "output_tokens": 523,
+  "cache_read_tokens": 12517,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "faithful": 4,
+  "kql_correct": 3,
+  "actionable": 3,
+  "calibrated": 4,
+  "reasons": [
+   "The hunt follows the surrounding context (employees directed to run commercial remote access tools) and openly admits the quote itself is only a technique ID; the tool list goes a bit beyond the report, with ngrok, Level and DWAgent added without evidence.",
+   "The tables and columns are real and the syntax is valid, but the logic is sloppy. has_any with short tokens like \"Level\", \"Zoho\", \"Atera\" and \"Action1\" matches substrings across FileName, ProductName and OriginalFileName and will hit many benign binaries. The OR in the path filter means any process started by chrome.exe, explorer.exe or outlook.exe passes regardless of path, so the user-writable-path narrowing in the title is not enforced. The summarize groups by ProcessCommandLine and SHA256, which fragments the counts.",
+   "An analyst can run it today and the projected columns (device, account, hash, command line, parent process) support triage. However, explorer.exe-launched RATs in Program Files will be noisy, there is no allowlist or prevalence filter, and the title and query disagree. The tuning notes are sensible but have to be applied by hand.",
+   "A 40 confidence score and the listed false positives (IT helpdesk, sanctioned RMM, deployment tools) fit a broad dual-use query with no allowlist. The rationale overstates the path filter's effect, since the OR makes it weaker than claimed, and substring matches add noise the false-positive list does not mention."
+  ]
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "request_key": "557bb762832cab407c3c606874804ee070aeb92515a08a1fa1c946a83ead4d5b",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1657,
+  "output_tokens": 526,
+  "cache_read_tokens": 12517,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "faithful": 4,
+  "kql_correct": 3,
+  "actionable": 3,
+  "calibrated": 3,
+  "reasons": [
+   "Grounded in the quoted behavior of registering attacker-controlled MFA after account compromise (T1556.006). It adds risky-sign-in correlation the evidence does not state, but this is a reasonable proxy.",
+   "Tables and columns exist and the syntax is valid, but the logic is flawed. The join filter is an OR, so any registration within 4h of any sign-in with singleFactorAuthentication matches, which is very broad. The ActorIp match is also unreliable, since a legitimate user's own same-IP sign-in followed by registration is the normal enrollment flow. TargetResources[0].userPrincipalName is not a reliably populated path, and tostring of a missing value gives an empty string, not null, so coalesce never falls back to Actor. The join is on UPN with no pre-aggregation and the union of 7d sign-ins is heavy. Non-interactive sign-ins are not covered.",
+   "An analyst can run it and the projected columns are useful for triage. However, the single-factor and same-IP branches will produce many benign hits. There is no summarization or dedup, so one registration can return many rows. There is no baseline for a new-method or new-device comparison.",
+   "A confidence of 45 is moderate and acknowledges the false positives. But the rationale calls same-IP sign-in a strong pattern, when same-IP is the benign norm, and the false-positive list omits the many noisy matches from the broad OR condition. The tuning advice partly compensates but does not match the query's real breadth."
+  ]
+ }
+}

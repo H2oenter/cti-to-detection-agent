@@ -151,8 +151,28 @@ def request_key(model: str, system: str, user: str) -> str:
     return sha256_bytes(payload.encode("utf-8"))
 
 
+def _save_record(fixture_dir: Path, key: str, result: LLMResult) -> None:
+    """Outputs and token counts only: never request headers or credentials."""
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "request_key": key,
+        "model": result.model,
+        "stop_reason": result.stop_reason,
+        "detail": result.detail,
+        "usage": {
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "cache_read_tokens": result.cache_read_tokens,
+            "cache_write_tokens": result.cache_write_tokens,
+        },
+        "output": result.parsed.model_dump(mode="json") if result.parsed else None,
+    }
+    path = fixture_dir / f"{key[:16]}.json"
+    path.write_text(json.dumps(record, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 class RecordingClient:
-    """Wraps a real client and saves each response as a test fixture (outputs only, no keys)."""
+    """Wraps a real client and saves each response as a test fixture."""
 
     def __init__(self, inner: LLMClient, fixture_dir: Path) -> None:
         self.inner = inner
@@ -169,34 +189,36 @@ class RecordingClient:
             effort=effort,
             **kwargs,
         )
-        key = request_key(model, system, user)
-        record = {
-            "request_key": key,
-            "model": result.model,
-            "stop_reason": result.stop_reason,
-            "detail": result.detail,
-            "usage": {
-                "input_tokens": result.input_tokens,
-                "output_tokens": result.output_tokens,
-                "cache_read_tokens": result.cache_read_tokens,
-                "cache_write_tokens": result.cache_write_tokens,
-            },
-            "output": result.parsed.model_dump(mode="json") if result.parsed else None,
-        }
-        path = self.fixture_dir / f"{key[:16]}.json"
-        path.write_text(json.dumps(record, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        _save_record(self.fixture_dir, request_key(model, system, user), result)
         return result
 
 
 class ReplayClient:
-    """Serves recorded responses so tests and CI never call the API."""
+    """Serves recorded responses so tests and CI never call the API.
 
-    def __init__(self, fixture_dir: Path) -> None:
+    With a `fallback` client, a request that has no recording goes to the fallback and its
+    response is recorded: re-recording only what changed instead of the whole run.
+    """
+
+    def __init__(self, fixture_dir: Path, fallback: LLMClient | None = None) -> None:
         self.fixture_dir = fixture_dir
+        self.fallback = fallback
 
     def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
         key = request_key(model, system, user)
         path = self.fixture_dir / f"{key[:16]}.json"
+        if not path.exists() and self.fallback is not None:
+            result = self.fallback.structured(
+                model=model,
+                system=system,
+                user=user,
+                schema=schema,
+                max_tokens=max_tokens,
+                effort=effort,
+                **kwargs,
+            )
+            _save_record(self.fixture_dir, key, result)
+            return result
         if not path.exists():
             raise FixtureMissing(
                 f"no recorded response {path.name} in {self.fixture_dir}; "

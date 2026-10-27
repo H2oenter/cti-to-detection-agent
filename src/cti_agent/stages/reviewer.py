@@ -10,6 +10,7 @@ from cti_agent.config import Settings
 from cti_agent.llm.client import LLMClient
 from cti_agent.llm.steps import outcome_of, traced_call
 from cti_agent.models import Hunt, LintFinding, ReviewScores
+from cti_agent.stages.analyst import evidence_block
 from cti_agent.stages.collector import wrap_untrusted
 from cti_agent.trace import Tracer
 
@@ -43,14 +44,15 @@ def review_hunt(
     tracer: Tracer,
     settings: Settings,
     system: str,
+    actor: str | None = None,
+    surroundings: str | None = None,
 ) -> Hunt:
     lint_lines = [f"- {f.severity}: {f.code}: {f.message}" for f in hunt.lint] or ["- none"]
     user = "\n".join(
         [
             f"Technique: {hunt.technique_id}",
-            "",
-            "Evidence the hunt was drafted from:",
-            wrap_untrusted("\n".join(f"- {q}" for q in evidence)),
+            f"Threat actor named in the report: {actor or 'none'}",
+            *evidence_block(evidence, surroundings),
             "",
             "Draft hunt:",
             wrap_untrusted(hunt.draft.model_dump_json(indent=1)),

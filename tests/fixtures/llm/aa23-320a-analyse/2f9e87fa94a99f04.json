@@ -1,0 +1,38 @@
+{
+ "request_key": "2f9e87fa94a99f0410909a3b3c37e19001a54b14889ad3de1712675888c3006d",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 387,
+  "output_tokens": 1060,
+  "cache_read_tokens": 13029,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "title": "Remote access tool execution from user-writable paths (helpdesk impersonation)",
+  "technique_id": "T1204",
+  "tables": [
+   "DeviceProcessEvents"
+  ],
+  "query": "let RATs = dynamic([\"AnyDesk\",\"TeamViewer\",\"ScreenConnect\",\"ConnectWiseControl\",\"SplashtopStreamer\",\"Splashtop\",\"LogMeIn\",\"RustDesk\",\"Atera\",\"AteraAgent\",\"NinjaRMM\",\"ngrok\",\"Pulseway\",\"Level\",\"Action1\",\"ZohoAssist\",\"Zoho\",\"UltraViewer\",\"BeyondTrust\",\"Bomgar\",\"DWAgent\",\"MeshAgent\",\"quickassist\"]);\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where ActionType == \"ProcessCreated\"\n| where ProcessVersionInfoProductName has_any (RATs) or ProcessVersionInfoOriginalFileName has_any (RATs) or FileName has_any (RATs)\n| where FolderPath has_any (\"\\\\Users\\\\\", \"\\\\Downloads\\\\\", \"\\\\AppData\\\\\", \"\\\\Temp\\\\\") or InitiatingProcessFileName in~ (\"chrome.exe\",\"msedge.exe\",\"firefox.exe\",\"explorer.exe\",\"outlook.exe\",\"teams.exe\",\"msteams.exe\")\n| summarize FirstSeen=min(Timestamp), LastSeen=max(Timestamp), Executions=count() by DeviceName, AccountName, FileName, FolderPath, SHA256, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine, ProcessVersionInfoCompanyName\n| order by FirstSeen desc",
+  "evidence_quotes": [
+   "User Execution T1204"
+  ],
+  "expected_false_positives": [
+   "Legitimate IT helpdesk sessions using approved remote support tools",
+   "Users installing sanctioned RMM or remote access software",
+   "Software deployment tools launching remote access agents"
+  ],
+  "tuning_notes": "Exclude remote access tools approved by IT (by SHA256, signer or device group). Prioritise tools not in your software inventory, first-seen executions per device, and hits followed by new outbound connections to the tool's relay infrastructure. Correlate with helpdesk ticket and call records.",
+  "assumptions": [
+   "Defender for Endpoint populates DeviceProcessEvents with ProcessVersionInfo fields",
+   "The report's quote gives only the technique ID; behaviour is drawn from surrounding context describing employees directed to run commercial remote access tools",
+   "No approved-tool allowlist is applied, so legitimate tools will match"
+  ],
+  "confidence": {
+   "score": 40,
+   "rationale": "Behavioural hunt on common dual-use remote tools; the user-writable-path filter helps, but legitimate IT use is frequent."
+  }
+ }
+}

@@ -218,17 +218,17 @@ def run_analyse(
         outcome="ok",
         detail=f"{len(coverage)} techniques, {states}; drafting {len(selected)}",
     )
-    evidence = {
-        a.item.attack_id: [a.item.evidence.quote] for a in accepted if a.item_type == "technique"
-    }
+    techniques = {a.item.attack_id: a for a in accepted if a.item_type == "technique"}
     actor = next((a.item.name for a in accepted if a.item_type == "actor"), None)
 
     hunts: list[Hunt] = []
     for entry in selected:
+        item = techniques[entry.attack_id]
+        evidence, surroundings = [item.item.evidence.quote], item.context
         hunt, outcome = draft_hunt(
-            entry, evidence[entry.attack_id], actor,
+            entry, evidence, actor,
             client=client, tracer=tracer, settings=settings, system=analyst_system,
-            prompt_version=analyst_prompt.version, schema=schema,
+            prompt_version=analyst_prompt.version, schema=schema, surroundings=surroundings,
         )  # fmt: skip
         if hunt is None:
             not_drafted.append(f"{entry.attack_id} ({outcome})")
@@ -236,11 +236,13 @@ def run_analyse(
         hunts.append(
             review_hunt(
                 hunt,
-                evidence[entry.attack_id],
+                evidence,
                 client=client,
                 tracer=tracer,
                 settings=settings,
                 system=reviewer_system,
+                actor=actor,
+                surroundings=surroundings,
             )
         )
 

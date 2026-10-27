@@ -13,6 +13,15 @@ and on chunking. If either changes, delete the old files and record again from t
 cti-agent ingest tests/fixtures/reports/aa23-320a.txt --record tests/fixtures/llm/aa23-320a
 ```
 
+`../llm/aa23-320a-analyse/` holds what `claude-sonnet-5-5` returned on 27 Oct 2026 for `analyse`
+on that run: 5 hunt drafts, 5 reviews and the leadership summary. To update only the responses
+whose requests changed, give `--replay` and `--record` the same folder. Recorded responses are
+replayed, and only the missing ones are fetched live:
+
+```bash
+cti-agent analyse <run_id> --force --replay tests/fixtures/llm/aa23-320a-analyse --record tests/fixtures/llm/aa23-320a-analyse
+```
+
 `../attack-v20-subset-aa23-320a.json` is a slice of MITRE ATT&CK Enterprise v20.0, holding only the
 techniques this advisory mentions. ATT&CK® is © The MITRE Corporation and is reproduced under the
 ATT&CK terms of use.

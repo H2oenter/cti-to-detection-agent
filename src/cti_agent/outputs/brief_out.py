@@ -28,7 +28,7 @@ class LeadershipSummary(BaseModel):
 
 def brief_facts(analysis: AnalysisResult, title: str, indicator_count: int) -> dict:
     states = Counter(e.state for e in analysis.coverage)
-    gaps = [e for e in analysis.coverage if e.state == "gap"]
+    names = {e.attack_id: e.name for e in analysis.coverage}
     return {
         "report_title": title,
         "actor": analysis.actor,
@@ -41,7 +41,11 @@ def brief_facts(analysis: AnalysisResult, title: str, indicator_count: int) -> d
         "indicators_accepted": indicator_count,
         "hunts_drafted": len(analysis.hunts),
         "hunts_needing_attention": sum(h.needs_attention for h in analysis.hunts),
-        "top_gaps": [{"id": e.attack_id, "name": e.name} for e in gaps[:3]],
+        # The gaps the draft hunts target, in the order they were chosen.
+        "draft_hunts_target": [
+            {"id": h.technique_id, "name": names.get(h.technique_id, h.technique_id)}
+            for h in analysis.hunts
+        ],
     }
 
 
@@ -66,16 +70,15 @@ def check_summary(sentences: list[str], facts: dict) -> list[str]:
 
 def template_summary(facts: dict) -> str:
     actor = facts["actor"] or "The actor in this report"
-    gap_names = ", ".join(g["name"] for g in facts["top_gaps"]) or "none"
+    targets = ", ".join(t["name"] for t in facts["draft_hunts_target"]) or "none"
     return (
         f"{actor} activity in this report maps to {facts['techniques_total']} ATT&CK techniques "
         f"across {facts['tactics_total']} tactics. "
         f"The current rule set covers {facts['covered']} fully and "
-        f"{facts['partially_covered']} partly, leaving {facts['gaps']} gaps, including "
-        f"{gap_names}. "
-        f"{facts['hunts_drafted']} draft hunts are waiting for analyst review "
-        f"({facts['hunts_needing_attention']} flagged for attention), and nothing is deployed "
-        "until an analyst approves it."
+        f"{facts['partially_covered']} partly, leaving {facts['gaps']} gaps. "
+        f"{facts['hunts_drafted']} draft hunts ({targets}) are waiting for analyst review, "
+        f"{facts['hunts_needing_attention']} of them flagged for attention, and nothing is "
+        "deployed until an analyst approves it."
     )
 
 

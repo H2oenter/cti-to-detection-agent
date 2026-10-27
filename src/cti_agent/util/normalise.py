@@ -106,6 +106,18 @@ class SourceIndex:
     def contains(self, text: str) -> bool:
         return self.find(text).found
 
+    def surrounding(self, quote: str, radius: int = 300) -> str | None:
+        """The source text around a quote, trimmed to whole words, for readers of the evidence."""
+        window = self.context(quote, radius)
+        if window is None:
+            return None
+        key = match_key(quote)
+        start, end = window.find(key), window.find(key) + len(key)
+        head, tail = window[:start], window[end:]
+        head = head[head.find(" ") + 1 :] if " " in head and len(head) >= radius else head
+        tail = tail[: tail.rfind(" ")] if " " in tail and len(tail) >= radius else tail
+        return f"{head}{key}{tail}".strip()
+
     def context(self, quote: str, radius: int = 200) -> str | None:
         """The normalised source text around a quote, for checks that need surroundings."""
         key = match_key(quote)

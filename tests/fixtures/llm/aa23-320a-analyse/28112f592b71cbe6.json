@@ -1,0 +1,41 @@
+{
+ "request_key": "28112f592b71cbe60bb28294cbd36684a7519fe68b5954eddb011a32f1b51492",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 393,
+  "output_tokens": 1200,
+  "cache_read_tokens": 13029,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "title": "New MFA method registered shortly after a risky or atypical sign-in",
+  "technique_id": "T1556.006",
+  "tables": [
+   "AuditLogs",
+   "SigninLogs"
+  ],
+  "query": "let lookback = 7d;\nlet window = 4h;\nlet MfaReg = AuditLogs\n| where TimeGenerated > ago(lookback)\n| where OperationName in~ (\"User registered security info\", \"User registered all required security info\", \"Admin registered security info\", \"Admin updated security info\")\n| where Result =~ \"success\"\n| extend Actor = tostring(InitiatedBy.user.userPrincipalName), ActorIp = tostring(InitiatedBy.user.ipAddress), TargetUpn = tostring(TargetResources[0].userPrincipalName)\n| extend UserPrincipalName = tolower(coalesce(TargetUpn, Actor))\n| project RegTime = TimeGenerated, OperationName, UserPrincipalName, Actor, ActorIp, ResultDescription, CorrelationId;\nlet Signins = SigninLogs\n| where TimeGenerated > ago(lookback)\n| where ResultType == 0\n| extend UserPrincipalName = tolower(UserPrincipalName)\n| extend Country = tostring(LocationDetails.countryOrRegion)\n| project SignTime = TimeGenerated, UserPrincipalName, SigninIp = IPAddress, Country, AppDisplayName, ClientAppUsed, UserAgent, RiskLevelDuringSignIn, RiskState, AuthenticationRequirement, IsInteractive;\nMfaReg\n| join kind=inner Signins on UserPrincipalName\n| where SignTime between ((RegTime - window) .. RegTime)\n| where SigninIp == ActorIp or RiskLevelDuringSignIn in (\"medium\",\"high\") or AuthenticationRequirement == \"singleFactorAuthentication\"\n| project RegTime, SignTime, UserPrincipalName, OperationName, Actor, ActorIp, SigninIp, Country, AppDisplayName, ClientAppUsed, UserAgent, RiskLevelDuringSignIn, RiskState, AuthenticationRequirement, ResultDescription\n| order by RegTime desc",
+  "evidence_quotes": [
+   "register their own MFA tokens [T1556.006] [T1606] and deploy remote"
+  ],
+  "expected_false_positives": [
+   "New employees enrolling MFA during onboarding",
+   "Users replacing a lost or new phone",
+   "Legitimate helpdesk-assisted MFA resets",
+   "Users enrolling via Temporary Access Pass from a new network"
+  ],
+  "tuning_notes": "Exclude onboarding windows and accounts created in the last few days. Restrict to privileged or high-value accounts first. Add allowlists for corporate egress IPs and trusted countries. Adjust the window. Alert harder when the registration IP differs from the user's usual locations or follows a password reset or helpdesk call.",
+  "assumptions": [
+   "Entra ID audit and sign-in logs are ingested into Sentinel",
+   "Security info registration events appear in AuditLogs with these OperationName values",
+   "InitiatedBy.user.ipAddress is populated for self-service registrations",
+   "The matched sign-in IP is assumed to be the same session that registered MFA"
+  ],
+  "confidence": {
+   "score": 45,
+   "rationale": "MFA registration after a risky or same-IP sign-in is a strong Scattered Spider pattern, but legitimate enrollments are common."
+  }
+ }
+}

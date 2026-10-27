@@ -1,0 +1,24 @@
+{
+ "request_key": "9bc7e0dcf067e0ba5526a57d13a533e6ebca2c4e57c6312dc08dd6a4af479aac",
+ "model": "claude-sonnet-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1729,
+  "output_tokens": 574,
+  "cache_read_tokens": 12517,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "faithful": 3,
+  "kql_correct": 2,
+  "actionable": 3,
+  "calibrated": 4,
+  "reasons": [
+   "The evidence only says actor-installed ETL tools (T1648) were used to centralise data. The ETL tool list is a reasonable guess, but the draft adds Lambda/Glue serverless execution, rclone and Azure Functions, none of which the evidence mentions; T1648 is serverless execution, so the technique ID and the evidence don't quite match.",
+   "The union has schema problems. Table 'proc' has Timestamp, Source, DeviceName, Account and similar columns, and the cloud branch maps IPAddress into DeviceName, which is misleading. The 'has_any' on 'dbt', 'nifi', 'kettle' and 'stitch' will match substrings in many unrelated command lines and file names, and ActionType has_any 'Invoke' is overly broad. Because 'proc' and 'cloud' are bare variables, the final union needs a query-statement terminator, but the union is syntactically valid. Overall the query runs but the logic is loose and the field mapping is hacky.",
+   "An analyst can run it today and the 7-day window is fine, but the output is noisy. Overloading cloud fields into the process-oriented columns (IPAddress as DeviceName, UserAgent as InitiatingProcessFileName) makes triage awkward. Nothing is aggregated or stacked, and there is no baseline exclusion built in. The tuning notes help somewhat.",
+   "A 30 confidence score with generic-ETL caveats and legitimate-use false positives matches how broad and noisy the query is. The draft also admits the evidence is thin. The false positives list is sensible, though it undersells the substring-match noise from short terms."
+  ]
+ }
+}

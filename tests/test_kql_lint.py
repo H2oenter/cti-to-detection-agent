@@ -94,6 +94,26 @@ def test_warnings(query, declared, code):
     assert codes(findings, "error") == []
 
 
+def test_parenthesised_arithmetic_is_not_a_table():
+    """Regression: the reviewer caught this false positive on a real AA23-320A draft."""
+    query = (
+        "let regs = AuditLogs | where TimeGenerated > ago(7d)"
+        " | project RegTime = TimeGenerated, Upn = tostring(InitiatedBy.user.userPrincipalName);\n"
+        "regs | join kind=inner (SigninLogs | where TimeGenerated > ago(7d)"
+        " | project Upn = UserPrincipalName, SigninTime = TimeGenerated) on Upn\n"
+        "| where SigninTime between ((RegTime - 1h) .. (RegTime + 1h))"
+    )
+    assert codes(lint_kql(query, ["AuditLogs", "SigninLogs"], SCHEMA), "error") == []
+
+
+def test_unknown_table_inside_a_join_is_caught():
+    query = (
+        "SigninLogs | where TimeGenerated > ago(1d)\n"
+        "| join kind=inner (AuditLog | where TimeGenerated > ago(1d)) on CorrelationId"
+    )
+    assert "unknown_table" in codes(lint_kql(query, ["SigninLogs"], SCHEMA), "error")
+
+
 def test_unknown_column_names_are_listed():
     query = 'DeviceProcessEvents | where Timestamp > ago(1d) | where ParentProcessName == "x"'
     [warning] = [f for f in lint_kql(query, ["DeviceProcessEvents"], SCHEMA)

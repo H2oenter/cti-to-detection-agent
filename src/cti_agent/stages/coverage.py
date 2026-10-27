@@ -10,11 +10,13 @@ from pathlib import Path
 from cti_agent.attack.attack_index import AttackLookup
 from cti_agent.models import AcceptedItem, CoverageEntry
 
-# Kill-chain order across ATT&CK versions (v20 adds "stealth" next to defense evasion).
+# Kill-chain order across ATT&CK versions (v20 splits defense evasion into "stealth" and
+# "defense-impairment"; older bundles still say "defense-evasion").
 TACTIC_ORDER = [
     "reconnaissance", "resource-development", "initial-access", "execution", "persistence",
-    "privilege-escalation", "defense-evasion", "stealth", "credential-access", "discovery",
-    "lateral-movement", "collection", "command-and-control", "exfiltration", "impact",
+    "privilege-escalation", "defense-evasion", "stealth", "defense-impairment",
+    "credential-access", "discovery", "lateral-movement", "collection", "command-and-control",
+    "exfiltration", "impact",
 ]  # fmt: skip
 PRE_COMPROMISE = {"reconnaissance", "resource-development"}
 

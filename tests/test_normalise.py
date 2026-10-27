@@ -75,3 +75,12 @@ def test_item_hash_is_stable_across_key_order():
     assert item_hash({"a": 1, "b": [1, 2]}) == item_hash({"b": [1, 2], "a": 1})
     assert item_hash({"a": 1}) != item_hash({"a": 2})
     assert item_hash({"a": 1}).startswith("sha256:")
+
+
+def test_surrounding_text_is_trimmed_to_words():
+    page = ("alpha " * 80) + "The actors used MFA fatigue (T1621) against staff. " + ("omega " * 80)
+    around = SourceIndex([page]).surrounding("used MFA fatigue (T1621)", radius=40)
+    assert "used MFA fatigue (T1621)" in around
+    assert around.startswith("alpha") and around.endswith("omega")
+    assert len(around) < 140
+    assert SourceIndex(["short page"]).surrounding("missing") is None
