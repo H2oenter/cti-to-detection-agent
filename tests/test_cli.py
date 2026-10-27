@@ -153,6 +153,14 @@ def test_prepatch_replayed_from_the_cli(cli_env, monkeypatch):
     assert "Retire when PHP is at 8.1.29" in result.output
 
 
+def test_prepatch_wants_one_id_or_top(cli_env):
+    neither = runner.invoke(app, ["prepatch"])
+    both = runner.invoke(app, ["prepatch", "CVE-2024-4577", "--top", "3"])
+    assert neither.exit_code == both.exit_code == 2
+    empty = runner.invoke(app, ["prepatch", "--top", "3", "--yes"])
+    assert empty.exit_code == 0 and "Nothing new to hunt" in empty.output
+
+
 @pytest.fixture
 def analysed_run(cli_env, settings, aa23_run, aa23_attack, monkeypatch):
     """AA23-320A ingested and analysed (fake models), with the CLI pointed at it."""

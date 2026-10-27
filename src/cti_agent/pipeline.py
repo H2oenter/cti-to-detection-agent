@@ -11,8 +11,9 @@ from pathlib import Path
 
 from cti_agent.attack.attack_index import AttackIndex, AttackLookup
 from cti_agent.config import Settings, tlp_block_reason
-from cti_agent.feeds.fetch import find_advisory
+from cti_agent.feeds.fetch import find_advisory, top_candidates
 from cti_agent.feeds.triage import load_watchlist
+from cti_agent.feeds.triage import triage as triage_advisory
 from cti_agent.inputs import load_source
 from cti_agent.llm.client import LLMClient
 from cti_agent.llm.prompting import load_prompt
@@ -52,11 +53,15 @@ from cti_agent.stages.prepatch import (
     choose_technique,
     exposure_hunt,
     first_sentence,
+    generic_behaviour_context,
+    generic_exposure_hunts,
     retire_when,
+    target_for,
+    technique_from_vector,
     verify_observables,
 )
 from cti_agent.stages.reviewer import review_hunt
-from cti_agent.stages.store import save_drafts, save_run, save_run_row
+from cti_agent.stages.store import has_run_for, save_drafts, save_run, save_run_row
 from cti_agent.stages.validator import Allowlist, validate, write_rejections
 from cti_agent.trace import Tracer
 from cti_agent.util.kql_lint import KqlSchema
@@ -315,14 +320,10 @@ def run_prepatch(
     entry, inbox_day = found
     advisory = VulnAdvisory.model_validate(entry["advisory"])
     triage = entry["triage"]
-    watched = next(
-        (w for w in load_watchlist(settings.watchlist_file) if w.name == triage["product"]), None
-    )
-    if watched is None:
-        raise AnalyseError(
-            f"{advisory.id} doesn't match a product on the watchlist, so there is no process "
-            "or inventory name to hunt for; add the product to data/watchlist.toml first"
-        )
+    # Triage again: an older inbox entry has no tier, and the watchlist may have changed.
+    current = triage_advisory(advisory, load_watchlist(settings.watchlist_file))
+    watched = current.product
+    target = target_for(advisory, watched)
 
     attack = attack or AttackIndex(*settings.attack_bundles())
     schema = schema or KqlSchema.load(settings.kql_schema_file)
@@ -364,22 +365,34 @@ def run_prepatch(
     extraction = extracted.parsed if extracted is not None else None
     observables, rejected = verify_observables(extraction, source) if extraction else ([], [])
 
-    retire = retire_when(advisory, watched.name, now)
-    technique = choose_technique(extraction, source, attack)
-    hunts = [exposure_hunt(advisory, watched, technique.attack_id, schema, retire)]
+    retire = retire_when(advisory, target.name, now, names_approximate=watched is None)
+    technique = choose_technique(
+        extraction, source, attack, technique_from_vector(advisory.cvss_vector)
+    )
+    if watched:
+        hunts = [exposure_hunt(advisory, watched, technique.attack_id, schema, retire)]
+        facts = behaviour_context(advisory, watched, current.signals)
+    else:
+        hunts = generic_exposure_hunts(advisory, target, technique.attack_id, schema, retire)
+        facts = generic_behaviour_context(advisory, target, current.reasons)
 
     analyst_prompt, reviewer_prompt = load_prompt("analyst"), load_prompt("reviewer")
     evidence = [o.evidence.quote for o in observables] or [first_sentence(advisory.description)]
     surroundings = behaviour_surroundings(advisory, extraction)
-    facts = behaviour_context(advisory, watched, triage["signals"])
-    hunt, outcome = draft_hunt(
-        technique, evidence, None,
-        client=client, tracer=tracer, settings=settings,
-        system=analyst_prompt.text.replace("{schema}", tables),
-        prompt_version=analyst_prompt.version, schema=schema, kind="behaviour",
-        surroundings=surroundings,
-        extra=facts,
-    )  # fmt: skip
+    hunt, outcome = None, None
+    if watched or observables:
+        hunt, outcome = draft_hunt(
+            technique, evidence, None,
+            client=client, tracer=tracer, settings=settings,
+            system=analyst_prompt.text.replace("{schema}", tables),
+            prompt_version=analyst_prompt.version, schema=schema, kind="behaviour",
+            surroundings=surroundings,
+            extra=facts,
+        )  # fmt: skip
+    else:
+        # A product with no known process names and nothing verifiable in the advisory would
+        # get a guessed hunt; better none, and the exposure queries alone.
+        outcome = "no verified observable to hunt for, and the product isn't on the watchlist"
     if hunt is not None:
         hunt = review_hunt(
             hunt, evidence,
@@ -396,8 +409,9 @@ def run_prepatch(
     result = PrepatchResult(
         run_id=run_id,
         advisory=advisory,
-        product=watched.name,
-        signals=triage["signals"],
+        product=target.name,
+        tier=current.tier,
+        signals=current.reasons,
         extraction=extraction,
         observables=observables,
         rejected_observables=rejected
@@ -409,12 +423,27 @@ def run_prepatch(
     _write_json(out_dir / "prepatch.json", result.model_dump(mode="json"))
     _write_json(out_dir / "provenance.json", provenance.model_dump(mode="json"))
     (out_dir / "brief.md").write_text(render_prepatch_brief(result, provenance), encoding="utf-8")
+    planned = hunt is not None or not (watched or observables)  # no behaviour hunt by design
     save_run_row(
-        settings.db_path, provenance, "complete" if hunt else "partial",
+        settings.db_path, provenance, "complete" if planned and hunts else "partial",
         {"hunts": len(hunts), "advisory": advisory.id},
     )  # fmt: skip
     save_drafts(settings.db_path, run_id, hunts)
     return result
+
+
+def run_prepatch_top(
+    n: int, settings: Settings, client: LLMClient, **kwargs
+) -> tuple[list[PrepatchResult], list[str]]:
+    """Pre-patch hunts for the n highest-ranked advisories of the newest fetch. An advisory
+    that already has a pre-patch run is skipped. Returns (results, skipped IDs)."""
+    results, skipped = [], []
+    for advisory_id in top_candidates(settings.inbox_dir, n):
+        if has_run_for(settings.db_path, advisory_id):
+            skipped.append(advisory_id)
+            continue
+        results.append(run_prepatch(advisory_id, settings, client, **kwargs))
+    return results, skipped
 
 
 def _safe_id(identifier: str) -> str:

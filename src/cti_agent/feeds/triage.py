@@ -20,11 +20,13 @@ import fnmatch
 import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from cti_agent.models import VulnAdvisory
 
 TIERS = ("hunt now", "hunt soon", "watch", "other")
+ZERO_DAY_WINDOW = timedelta(days=30)
 PASSING = {"hunt now", "hunt soon"}
 
 RCE_CWES = {"CWE-77", "CWE-78", "CWE-94", "CWE-95", "CWE-502", "CWE-434", "CWE-917", "CWE-1336"}
@@ -94,6 +96,7 @@ class Triage:
     impact: list[str] = field(default_factory=list)
     no_fix: bool = False
     tier: str = "other"
+    recent: bool = True  # published within ZERO_DAY_WINDOW of the fetch, or no date given
 
     @property
     def passed(self) -> bool:
@@ -101,8 +104,9 @@ class Triage:
 
     @property
     def zero_day(self) -> bool:
-        """Exploited, and the advisory lists no fixed version yet."""
-        return bool(self.exploited) and self.no_fix
+        """Exploited, recent, and no fixed version listed yet. An old KEV entry whose record
+        simply lacks version data isn't a zero-day."""
+        return bool(self.exploited) and self.no_fix and self.recent
 
     @property
     def reasons(self) -> list[str]:
@@ -212,11 +216,14 @@ def triage(
     advisory: VulnAdvisory,
     watchlist: list[WatchedProduct],
     extra_exploited: tuple[str, ...] = (),
+    now: datetime | None = None,
 ) -> Triage:
     """`extra_exploited` carries signals found outside the record, such as a public
-    scanner template for the CVE."""
+    scanner template for the CVE. `now` is when the feed was read."""
     exploited = exploited_signals(advisory) + list(extra_exploited)
     impact = impact_signals(advisory)
+    published = advisory.published
+    recent = now is None or published is None or now - published <= ZERO_DAY_WINDOW
     return Triage(
         advisory,
         match_product(advisory, watchlist),
@@ -225,6 +232,7 @@ def triage(
         impact,
         no_fix_listed(advisory),
         tier_for(exploited, impact, score(advisory)),
+        recent,
     )
 
 

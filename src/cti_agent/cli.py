@@ -27,7 +27,7 @@ from cti_agent.evaluation.gold import GoldError
 from cti_agent.evaluation.injection import run_injection_suite
 from cti_agent.evaluation.runner import EvalError, gold_markdown, run_gold_eval, write_results
 from cti_agent.feeds.fetch import SOURCES as FEED_SOURCES
-from cti_agent.feeds.fetch import parse_since, run_fetch
+from cti_agent.feeds.fetch import parse_since, run_fetch, top_candidates
 from cti_agent.inputs import InputError
 from cti_agent.llm.client import (
     AnthropicClient,
@@ -37,7 +37,7 @@ from cti_agent.llm.client import (
     RecordingClient,
     ReplayClient,
 )
-from cti_agent.models import AnalysisResult
+from cti_agent.models import AnalysisResult, PrepatchResult
 from cti_agent.outputs.sentinel_upload import (
     BATCH_SIZE,
     BatchResult,
@@ -58,7 +58,7 @@ from cti_agent.pipeline import (
 )
 from cti_agent.review_ui import run_review
 from cti_agent.stages.gate import Gate, GateError
-from cti_agent.stages.store import mark_published
+from cti_agent.stages.store import has_run_for, mark_published
 from cti_agent.trace import read_trace
 
 
@@ -326,7 +326,14 @@ def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:
 
 @app.command()
 def prepatch(
-    advisory_id: Annotated[str, typer.Argument(help="CVE or GHSA ID from the fetch inbox.")],
+    advisory_id: Annotated[
+        str | None, typer.Argument(help="CVE or GHSA ID from the fetch inbox.")
+    ] = None,
+    top: Annotated[
+        int | None,
+        typer.Option(help="Instead of one ID: the N highest-ranked advisories of the last fetch."),
+    ] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="With --top: don't ask to confirm.")] = False,
     replay: Annotated[
         Path | None, typer.Option(help="Replay recorded model responses from this folder.")
     ] = None,
@@ -334,24 +341,47 @@ def prepatch(
         Path | None, typer.Option(help="Save model responses to this folder as test fixtures.")
     ] = None,
 ) -> None:
-    """Exposure query and behaviour hunt for one advisory, to use until it's patched."""
+    """Exposure queries and a behaviour hunt for an advisory, to use until it's patched."""
+    if (advisory_id is None) == (top is None):
+        raise typer.BadParameter("give one advisory ID, or --top N")
     settings = Settings()
+    if top is not None:
+        ids = [i for i in top_candidates(settings.inbox_dir, top)
+               if not has_run_for(settings.db_path, i)]  # fmt: skip
+        if not ids:
+            console.print("Nothing new to hunt: run cti-agent fetch first, or every top "
+                          "advisory already has a pre-patch run.")  # fmt: skip
+            return
+        console.print(f"Pre-patch hunts for {len(ids)} advisories: {', '.join(ids)}")
+        if not (yes or replay) and not typer.confirm(
+            "Each costs about 10-15 cents in model calls. Go ahead?", default=True
+        ):
+            raise typer.Exit(code=1)
+    else:
+        ids = [advisory_id]
     client = _make_client(settings, replay, record)
-    try:
-        result = run_prepatch(advisory_id, settings, client)
-    except (AnalyseError, FileNotFoundError, FixtureMissing) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=2) from None
-    except FatalLLMError as exc:
-        console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
-        raise typer.Exit(code=3) from None
+    for one in ids:
+        try:
+            result = run_prepatch(one, settings, client)
+        except (AnalyseError, FileNotFoundError, FixtureMissing) as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=2) from None
+        except FatalLLMError as exc:
+            console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
+            raise typer.Exit(code=3) from None
+        _print_prepatch(result, settings)
+    _replay_note(replay, record)
 
+
+def _print_prepatch(result: PrepatchResult, settings: Settings) -> None:
     adv = result.advisory
-    console.print(f"\n[bold]{adv.id}[/bold] {adv.title or ''}  ({result.product})")
+    tier = f"  [bold]{result.tier}[/bold]" if result.tier else ""
+    console.print(f"\n[bold]{adv.id}[/bold] {adv.title or ''}  ({result.product}){tier}")
     console.print(f"Why: {'; '.join(result.signals)}")
+    rejected = [r for r in result.rejected_observables if not r.startswith("behaviour hunt not")]
     console.print(
         f"Observables verified against the advisory text: {len(result.observables)}"
-        + (f", rejected: {len(result.rejected_observables)}" if result.rejected_observables else "")
+        + (f", rejected: {len(rejected)}" if rejected else "")
     )
     table = Table(title="Pre-patch hunts (pending human review)", title_justify="left")
     for col in ("Kind", "Title", "By", "Lint", "Review F/K/A/C", "Attention"):
@@ -368,10 +398,12 @@ def prepatch(
             "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else "",
         )
     console.print(table)
+    for note in result.rejected_observables:
+        if note.startswith("behaviour hunt not drafted"):
+            console.print(f"[yellow]{note}[/yellow]")
     console.print(f"[bold]{result.retire_when}[/bold]")
     out_dir = settings.out_dir / result.run_id
     console.print(f"Brief: {out_dir / 'brief.md'}   Hunts: {out_dir / 'hunts'}")
-    _replay_note(replay, record)
 
 
 def _audit_log(settings: Settings) -> AuditLog:

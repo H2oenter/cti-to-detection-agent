@@ -269,6 +269,16 @@ def test_no_fix_listed_and_zero_day():
     assert triage(worded, []).no_fix
 
 
+def test_an_old_kev_entry_without_version_data_is_not_a_zero_day():
+    unfixed = {"vendor": "Fixture", "product": "Gateway",
+               "ranges": [{"introduced": "1.0", "last_affected": "2.4"}]}  # fmt: skip
+    old = advisory(affected=[unfixed], kev_listed=True, published="2024-02-08T00:00:00Z")
+    now = datetime(2026, 10, 27, tzinfo=UTC)
+    assert triage(old, [], now=now).no_fix and not triage(old, [], now=now).zero_day
+    fresh = advisory(affected=[unfixed], kev_listed=True, published="2026-10-20T00:00:00Z")
+    assert triage(fresh, [], now=now).zero_day
+
+
 def test_watchlist_ranks_first_within_a_tier():
     php = map_cve(record("CVE-2024-4577.json"))
     other = advisory(kev_listed=True, cwes=["CWE-78"], cvss_score=10.0)

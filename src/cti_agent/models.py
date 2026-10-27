@@ -319,7 +319,8 @@ class PrepatchResult(BaseModel):
     run_id: str
     advisory: VulnAdvisory
     product: str | None
-    signals: list[str]
+    signals: list[str]  # why it was triaged: exploitation, impact, no fix listed
+    tier: str = ""
     extraction: PrepatchExtraction | None = None
     observables: list[Observable] = Field(default_factory=list)  # verified against the text
     rejected_observables: list[str] = Field(default_factory=list)

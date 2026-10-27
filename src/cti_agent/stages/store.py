@@ -128,6 +128,16 @@ def save_drafts(db_path: Path, run_id: str, hunts: list[Hunt]) -> None:
         )
 
 
+def has_run_for(db_path: Path, source_file: str) -> bool:
+    """Whether a run already exists for this source (a report file, or an advisory ID)."""
+    if not db_path.exists():
+        return False
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.executescript(SCHEMA)
+        row = conn.execute("SELECT 1 FROM runs WHERE source_file = ? LIMIT 1", (source_file,))
+        return row.fetchone() is not None
+
+
 def save_run_row(db_path: Path, provenance: Provenance, status: str, summary: dict) -> None:
     """A run with no STIX bundle, such as a pre-patch run from a feed advisory."""
     db_path.parent.mkdir(parents=True, exist_ok=True)

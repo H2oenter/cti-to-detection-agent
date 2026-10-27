@@ -89,10 +89,12 @@ def run_fetch(
 
     watchlist = load_watchlist(settings.watchlist_file)
     merged = merge(items)
-    triaged = [triage(advisory, watchlist) for advisory, _ in merged]
+    triaged = [triage(advisory, watchlist, now=now) for advisory, _ in merged]
     templates = probe_templates(fetcher, cfg.get("nuclei"), triaged, errors)
     triaged = [
-        triage(t.advisory, watchlist, templates[t.advisory.id]) if t.advisory.id in templates else t
+        triage(t.advisory, watchlist, templates[t.advisory.id], now)
+        if t.advisory.id in templates
+        else t
         for t in triaged
     ]
     rank = {t.advisory.id: n for n, t in enumerate(ranked(triaged), start=1)}
