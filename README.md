@@ -4,18 +4,23 @@ A small agentic pipeline that reads a public threat report and turns it into val
 intelligence, an ATT&CK coverage check and draft KQL hunts. A person approves every output
 before it leaves the tool.
 
-> **Status:** `ingest` (stages 1-3) works end to end, and the tests run it offline with
-> recorded responses. Analysis, review and publish come next. The full README, with diagram,
-> threat model and evaluation results, comes with milestone M4.
+> **Status:** `ingest`, `analyse`, `fetch` and `prepatch` work end to end against the real
+> models, and the tests replay those recorded runs offline. The human gate (`review`) and
+> `publish` come next. The full README, with diagram, threat model and evaluation results,
+> comes with milestone M4.
 
 ```
-report (local PDF / HTML / text)  or  fresh advisory (allowlisted feeds, no LLM)
+report (local PDF / HTML / text)
   -> 1. Collector   LLM with NO tools; every item must carry a verbatim evidence quote
   -> 2. Validator   plain Python; rejects anything malformed, allowlisted or not quoted
   -> 3. Store       SQLite + STIX 2.1 bundle; provenance on every object
-  -> 4. Analyst     ATT&CK mapping, coverage gaps, draft KQL hunts
-  -> 5. Reviewer    second model scores each draft against a rubric
+  -> 4. Analyst     coverage gaps against a rule set, draft KQL hunts, deterministic KQL lint
+  -> 5. Reviewer    a separate model call scores each draft; code decides what needs attention
   -> 6. Human gate  approve / reject / edit; only approved items can be published
+
+fresh advisory (KEV, OSV, CVE List: allowlisted, no LLM) -> triage (watchlist + RCE signal)
+  -> exposure query (written by code from version data) + behaviour hunt (analyst + reviewer)
+  -> retire when patched, or after 30 days
 ```
 
 ## Design rules
@@ -48,12 +53,22 @@ cp .env.example .env              # then add ANTHROPIC_API_KEY
 python scripts/fetch_attack.py    # one-off: ATT&CK Enterprise + Mobile v20, SHA-256 pinned
 pytest
 
-cti-agent ingest reports/aa23-320a.pdf --tlp CLEAR   # stages 1-3, calls the model
+cti-agent ingest reports/aa23-320a.pdf --tlp CLEAR   # stages 1-3: extract, validate, store
+cti-agent analyse <run_id>                           # stages 4-5: coverage, hunts, review, brief
+cti-agent fetch --since 24h                          # fresh advisories, triaged (no LLM)
+cti-agent prepatch CVE-2024-4577                     # exposure + behaviour hunt until patched
 cti-agent trace <run_id>                             # tokens, cost and outcome per step
 ```
 
-Every run writes `out/<run_id>/` with the raw model output, the accepted items, `rejected.jsonl`
-with a reason for each rejection, a validated STIX 2.1 `bundle.json` and `trace.jsonl`.
+Every run writes `out/<run_id>/`:
+- `ingest`: the raw model output, the accepted items with their surrounding source text, `rejected.jsonl` with a reason for each rejection, a validated STIX 2.1 `bundle.json` and `trace.jsonl`.
+- `analyse` and `prepatch`: `hunts/*.kql`, each with its evidence, review scores and lint results in a header, plus `brief.md`.
+
+`fetch` files raw records, with their SHA-256 and the list of URLs requested, under `reports/inbox/`.
+
+Model responses can be recorded with `--record` and replayed with `--replay`. Pass both with the same folder to replay what's recorded and fetch only what's missing.
+
+KQL drafts are never run by the tool. A lint built from Microsoft's table references (`data/kql_schema.json`) rejects anything that could leave the workspace, such as `externaldata`, `http_request`, code plugins and cross-workspace queries, before a person is asked to run a query.
 
 All rule names in `data/my_rules.sample.csv` are fictional.
 

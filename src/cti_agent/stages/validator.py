@@ -369,3 +369,12 @@ def _dedupe_key(item: ExtractedItem) -> str:
     if isinstance(item, ExtractedActor):
         return item.name.strip().lower()
     return item.cve_id.strip().upper()
+
+
+def verify_quote(source: SourceIndex, quote: str) -> RejectReason | None:
+    """The evidence checks on their own, for stages outside the report path."""
+    if not source.find(quote).found:
+        return "quote_not_in_source"
+    if INJECTION_RE.search(source.context(quote) or ""):
+        return "suspected_injection"
+    return None

@@ -46,12 +46,20 @@ def review_hunt(
     system: str,
     actor: str | None = None,
     surroundings: str | None = None,
+    facts: str | None = None,
 ) -> Hunt:
+    """`facts` are pipeline facts from structured fields that the analyst was also given,
+    so the reviewer doesn't mistake them for invention."""
     lint_lines = [f"- {f.severity}: {f.code}: {f.message}" for f in hunt.lint] or ["- none"]
     user = "\n".join(
         [
             f"Technique: {hunt.technique_id}",
             f"Threat actor named in the report: {actor or 'none'}",
+            *(
+                [f"Facts the analyst was given from structured feed fields:\n{facts}"]
+                if facts
+                else []
+            ),
             *evidence_block(evidence, surroundings),
             "",
             "Draft hunt:",

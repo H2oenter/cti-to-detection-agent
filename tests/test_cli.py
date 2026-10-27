@@ -104,3 +104,50 @@ def test_analyse_with_replayed_responses(cli_env, settings, aa23_run, aa23_attac
 def test_analyse_unknown_run_exits_2(cli_env):
     result = runner.invoke(app, ["analyse", "no-such-run", "--replay", "x"])
     assert result.exit_code == 2
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["fetch", "--since", "1w"], "24h"),
+        (["fetch", "--source", "kev,twitter"], "unknown source"),
+    ],
+)
+def test_fetch_rejects_bad_options(cli_env, args, message):
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2 and message in result.output
+
+
+def test_prepatch_replayed_from_the_cli(cli_env, monkeypatch):
+    import json
+    from datetime import timedelta
+
+    from conftest import FakeOpener
+
+    from cti_agent.feeds.fetch import run_fetch
+
+    cve = "CVE-2024-4577"
+    for key, value in {
+        "INBOX_DIR": cli_env / "inbox",
+        "SOURCES_FILE": ROOT / "data" / "sources.toml",
+        "WATCHLIST_FILE": ROOT / "data" / "watchlist.toml",
+        "RULES_FILE": ROOT / "data" / "my_rules.sample.csv",
+        "KQL_SCHEMA_FILE": ROOT / "data" / "kql_schema.json",
+        "ATTACK_BUNDLE": FIXTURES / "attack-v20-subset-prepatch.json",
+    }.items():
+        monkeypatch.setenv(key, str(value))
+    url = (
+        "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2024/4xxx/"
+        + cve
+        + ".json"
+    )
+    raw = (FIXTURES / "feeds" / f"{cve}.json").read_bytes()
+    run_fetch(Settings(), since=timedelta(hours=1), sources=(), cve_ids=(cve,),
+              opener=FakeOpener({url: json.dumps(json.loads(raw)).encode()}))  # fmt: skip
+
+    result = runner.invoke(
+        app, ["prepatch", cve, "--replay", str(FIXTURES / "llm" / f"prepatch-{cve}")]
+    )
+    assert result.exit_code == 0, result.output
+    assert "exposure" in result.output and "behaviour" in result.output
+    assert "Retire when PHP is at 8.1.29" in result.output

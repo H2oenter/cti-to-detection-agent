@@ -1,12 +1,10 @@
 """Feed fetching, mapping and triage, against recorded real feed samples. No network."""
 
-import io
 import json
-import urllib.error
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from conftest import FIXTURES, ROOT
+from conftest import FIXTURES, ROOT, FakeOpener
 
 from cti_agent.feeds.fetch import find_advisory, parse_since, run_fetch
 from cti_agent.feeds.http import FeedError, Fetcher, _AllowlistRedirects, build_url, load_sources
@@ -33,20 +31,6 @@ def read(name):
 
 def record(name):
     return json.loads(read(name))
-
-
-class FakeOpener:
-    """Serves fixture bytes by URL and remembers every URL asked for."""
-
-    def __init__(self, routes):
-        self.routes = routes
-        self.urls = []
-
-    def open(self, request, timeout=None):
-        self.urls.append(request.full_url)
-        if request.full_url not in self.routes:
-            raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
-        return io.BytesIO(self.routes[request.full_url])
 
 
 def fetcher(routes):

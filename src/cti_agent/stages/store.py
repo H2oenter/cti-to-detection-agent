@@ -126,3 +126,23 @@ def save_drafts(db_path: Path, run_id: str, hunts: list[Hunt]) -> None:
                 for h in hunts
             ],
         )
+
+
+def save_run_row(db_path: Path, provenance: Provenance, status: str, summary: dict) -> None:
+    """A run with no STIX bundle, such as a pre-patch run from a feed advisory."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.executescript(SCHEMA)
+        conn.execute(
+            "INSERT OR REPLACE INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                provenance.run_id,
+                provenance.ingested_at.isoformat(),
+                provenance.source_file,
+                provenance.source_sha256,
+                provenance.tlp,
+                status,
+                provenance.model_dump_json(),
+                json.dumps(summary),
+            ),
+        )

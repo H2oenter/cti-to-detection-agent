@@ -36,6 +36,7 @@ from cti_agent.pipeline import (
     IngestResult,
     run_analyse,
     run_ingest,
+    run_prepatch,
 )
 from cti_agent.trace import read_trace
 
@@ -296,6 +297,56 @@ def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:
     console.print(f"\n[bold]For leadership[/bold] ({analysis.summary_source}):")
     console.print(analysis.leadership_summary)
     console.print(f"\nBrief: {out_dir / 'brief.md'}   Hunts: {out_dir / 'hunts'}")
+
+
+@app.command()
+def prepatch(
+    advisory_id: Annotated[str, typer.Argument(help="CVE or GHSA ID from the fetch inbox.")],
+    replay: Annotated[
+        Path | None, typer.Option(help="Replay recorded model responses from this folder.")
+    ] = None,
+    record: Annotated[
+        Path | None, typer.Option(help="Save model responses to this folder as test fixtures.")
+    ] = None,
+) -> None:
+    """Exposure query and behaviour hunt for one advisory, to use until it's patched."""
+    settings = Settings()
+    client = _make_client(settings, replay, record)
+    try:
+        result = run_prepatch(advisory_id, settings, client)
+    except (AnalyseError, FileNotFoundError, FixtureMissing) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+    except FatalLLMError as exc:
+        console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
+        raise typer.Exit(code=3) from None
+
+    adv = result.advisory
+    console.print(f"\n[bold]{adv.id}[/bold] {adv.title or ''}  ({result.product})")
+    console.print(f"Why: {'; '.join(result.signals)}")
+    console.print(
+        f"Observables verified against the advisory text: {len(result.observables)}"
+        + (f", rejected: {len(result.rejected_observables)}" if result.rejected_observables else "")
+    )
+    table = Table(title="Pre-patch hunts (pending human review)", title_justify="left")
+    for col in ("Kind", "Title", "By", "Lint", "Review F/K/A/C", "Attention"):
+        table.add_column(col, overflow="fold")
+    for h in result.hunts:
+        errors = [f.code for f in h.lint if f.severity == "error"]
+        r = h.review
+        table.add_row(
+            h.kind,
+            h.draft.title,
+            h.model,
+            ", ".join(errors) or "ok",
+            f"{r.faithful}/{r.kql_correct}/{r.actionable}/{r.calibrated}" if r else "n/a (code)",
+            "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else "",
+        )
+    console.print(table)
+    console.print(f"[bold]{result.retire_when}[/bold]")
+    out_dir = settings.out_dir / result.run_id
+    console.print(f"Brief: {out_dir / 'brief.md'}   Hunts: {out_dir / 'hunts'}")
+    _replay_note(replay, record)
 
 
 @app.command()

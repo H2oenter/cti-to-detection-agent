@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from cti_agent.config import Settings
 from cti_agent.llm.client import LLMClient
 from cti_agent.llm.steps import traced_call
-from cti_agent.models import AnalysisResult, Provenance
+from cti_agent.models import AnalysisResult, PrepatchResult, Provenance
 from cti_agent.trace import Tracer
 
 MAX_WORDS_PER_SENTENCE = 60
@@ -179,6 +179,76 @@ def render_brief(
         f"- Analysis and review: {', '.join(models) or 'none'}",
         f"- ATT&CK: {attack_description}",
         f"- Leadership summary: {analysis.summary_source}",
+        "",
+    ]
+    return "\n".join(out)
+
+
+def render_prepatch_brief(result: PrepatchResult, provenance: Provenance) -> str:
+    adv = result.advisory
+    fixed = sorted({r.fixed for p in adv.affected for r in p.ranges if r.fixed})
+    affected = "; ".join(
+        f"{p.vendor or p.ecosystem or ''} {p.product}".strip()
+        + (f" ({', '.join(p.platforms)})" if p.platforms else "")
+        for p in adv.affected
+    )
+    out = [
+        f"# Pre-patch brief: {adv.id}",
+        "",
+        f"{adv.title or ''}",
+        "",
+        f"Run `{result.run_id}` · from {provenance.source_name} · **DRAFT, pending human review**",
+        "",
+        "| | |",
+        "| --- | --- |",
+        f"| Product (watchlist) | {result.product or 'not on the watchlist'} |",
+        f"| Affected | {affected or 'not stated'} |",
+        f"| Fixed in | {', '.join(fixed) or 'no fixed version listed'} |",
+        f"| CVSS | {adv.cvss_score or 'n/a'} |",
+        f"| CISA KEV | {'yes, due ' + str(adv.kev_due_date) if adv.kev_listed else 'no'} |",
+        f"| SSVC exploitation | {adv.ssvc_exploitation or 'n/a'} |",
+        f"| Why it passed triage | {'; '.join(result.signals) or 'n/a'} |",
+        "",
+        f"**{result.retire_when}**",
+        "",
+        "## Advisory text (as published)",
+        "",
+        f"> {' '.join(adv.description.split())}",
+        "",
+    ]
+    if result.observables or result.rejected_observables:
+        out += ["## Observables pulled from the text", ""]
+        out += [f'- {o.description}: "{o.evidence.quote}"' for o in result.observables]
+        out += [f"- rejected ({r})" for r in result.rejected_observables]
+        out.append("")
+    out += ["## Hunts", ""]
+    for h in result.hunts:
+        d = h.draft
+        review = (
+            " · ".join(f"{k} {getattr(h.review, k)}" for k in
+                       ("faithful", "kql_correct", "actionable", "calibrated"))
+            if h.review else h.review_outcome
+        )  # fmt: skip
+        flag = f" ⚠ needs attention: {'; '.join(h.attention_reasons)}" if h.needs_attention else ""
+        out += [
+            f"### {d.title}",
+            "",
+            f"- Kind: {h.kind} · technique {h.technique_id} · by {h.model}",
+            f"- Confidence: {d.confidence.score}/100. {d.confidence.rationale}",
+            f"- Review: {review}{flag}",
+            f"- Lint: {'; '.join(f'{f.severity} {f.code}' for f in h.lint) or 'clean'}",
+            *[f"- Assumption: {a}" for a in d.assumptions],
+            "",
+            "```kql",
+            d.query.strip(),
+            "```",
+            "",
+        ]
+    out += [
+        "### Provenance",
+        "",
+        f"- Records: {provenance.fetched_from}",
+        f"- Extraction: {provenance.model} ({provenance.prompt_version})",
         "",
     ]
     return "\n".join(out)

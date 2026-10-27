@@ -288,3 +288,38 @@ class AnalysisResult(BaseModel):
     not_drafted: list[str] = Field(default_factory=list)  # gaps beyond the per-run cap
     leadership_summary: str = ""
     summary_source: Literal["model", "template"] = "template"
+
+
+# --- Pre-patch (M2 feed track) ---------------------------------------------------------
+
+
+class Observable(BaseModel):
+    description: str = Field(
+        description="Something that could appear in logs if this is exploited: a process "
+        "launch, command line, request pattern, file or network connection."
+    )
+    evidence: Evidence
+
+
+class PrepatchExtraction(BaseModel):
+    """What the extraction model returns for one advisory."""
+
+    attack_vector: str = Field(description="How the flaw is reached, in a few words.")
+    vulnerable_component: str = Field(description="The component or function the text names.")
+    preconditions: list[str] = Field(
+        description="Configurations the text says exploitation needs. Empty if none are stated."
+    )
+    observables: list[Observable]
+    techniques: list[ExtractedTechnique]
+
+
+class PrepatchResult(BaseModel):
+    run_id: str
+    advisory: VulnAdvisory
+    product: str | None
+    signals: list[str]
+    extraction: PrepatchExtraction | None = None
+    observables: list[Observable] = Field(default_factory=list)  # verified against the text
+    rejected_observables: list[str] = Field(default_factory=list)
+    hunts: list[Hunt] = Field(default_factory=list)
+    retire_when: str

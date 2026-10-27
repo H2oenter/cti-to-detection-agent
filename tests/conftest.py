@@ -1,4 +1,6 @@
+import io
 import re
+import urllib.error
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -219,3 +221,17 @@ def attack_index() -> AttackIndex:
 @pytest.fixture(scope="session")
 def allowlist() -> Allowlist:
     return Allowlist.load(ROOT / "data" / "allowlist.txt")
+
+
+class FakeOpener:
+    """Stands in for urllib: serves fixture bytes by URL and remembers every URL asked for."""
+
+    def __init__(self, routes):
+        self.routes = routes
+        self.urls = []
+
+    def open(self, request, timeout=None):
+        self.urls.append(request.full_url)
+        if request.full_url not in self.routes:
+            raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+        return io.BytesIO(self.routes[request.full_url])

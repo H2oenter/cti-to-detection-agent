@@ -1,0 +1,62 @@
+{
+ "type": "bundle",
+ "id": "bundle--fc207382-c9d1-4ece-bce2-6ef555c62d0a",
+ "objects": [
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--3f886f2a-874f-4333-b794-aa6075009b1c",
+   "created": "2018-04-18T17:59:24.739Z",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1190",
+     "external_id": "T1190"
+    }
+   ],
+   "modified": "2026-05-12T15:12:00.628Z",
+   "name": "Exploit Public-Facing Application",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-attack",
+     "phase_name": "initial-access"
+    }
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "enterprise-attack"
+   ],
+   "x_mitre_is_subtechnique": false,
+   "x_mitre_version": "2.8"
+  },
+  {
+   "type": "attack-pattern",
+   "spec_version": "2.1",
+   "id": "attack-pattern--be2dcee9-a7a7-4e38-afd6-21b31ecc3d63",
+   "created": "2018-04-18T17:59:24.739Z",
+   "revoked": false,
+   "external_references": [
+    {
+     "source_name": "mitre-attack",
+     "url": "https://attack.mitre.org/techniques/T1203",
+     "external_id": "T1203"
+    }
+   ],
+   "modified": "2025-10-24T17:49:18.695Z",
+   "name": "Exploitation for Client Execution",
+   "kill_chain_phases": [
+    {
+     "kill_chain_name": "mitre-attack",
+     "phase_name": "execution"
+    }
+   ],
+   "x_mitre_deprecated": false,
+   "x_mitre_domains": [
+    "enterprise-attack"
+   ],
+   "x_mitre_is_subtechnique": false,
+   "x_mitre_version": "1.5"
+  }
+ ]
+}

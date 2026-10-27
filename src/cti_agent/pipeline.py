@@ -11,31 +11,52 @@ from pathlib import Path
 
 from cti_agent.attack.attack_index import AttackIndex, AttackLookup
 from cti_agent.config import Settings, tlp_block_reason
+from cti_agent.feeds.fetch import find_advisory
+from cti_agent.feeds.triage import load_watchlist
 from cti_agent.inputs import load_source
 from cti_agent.llm.client import LLMClient
 from cti_agent.llm.prompting import load_prompt
+from cti_agent.llm.steps import traced_call
 from cti_agent.models import (
     TLP,
     AcceptedItem,
     AnalysisResult,
     Hunt,
+    PrepatchExtraction,
+    PrepatchResult,
     Provenance,
     RunSummary,
     ValidationResult,
+    VulnAdvisory,
 )
-from cti_agent.outputs.brief_out import brief_facts, leadership_summary, render_brief
+from cti_agent.outputs.brief_out import (
+    brief_facts,
+    leadership_summary,
+    render_brief,
+    render_prepatch_brief,
+)
 from cti_agent.outputs.kql_out import write_hunts
 from cti_agent.outputs.stix_out import build_bundle
 from cti_agent.stages.analyst import draft_hunt, schema_text
-from cti_agent.stages.collector import ChunkResult, collect
+from cti_agent.stages.collector import ChunkResult, collect, wrap_untrusted
 from cti_agent.stages.coverage import (
     check_coverage,
     group_by_tactic,
     load_rules,
     select_for_hunting,
 )
+from cti_agent.stages.prepatch import (
+    advisory_text,
+    behaviour_context,
+    behaviour_surroundings,
+    choose_technique,
+    exposure_hunt,
+    first_sentence,
+    retire_when,
+    verify_observables,
+)
 from cti_agent.stages.reviewer import review_hunt
-from cti_agent.stages.store import save_drafts, save_run
+from cti_agent.stages.store import save_drafts, save_run, save_run_row
 from cti_agent.stages.validator import Allowlist, validate, write_rejections
 from cti_agent.trace import Tracer
 from cti_agent.util.kql_lint import KqlSchema
@@ -272,3 +293,129 @@ def run_analyse(
     )
     save_drafts(settings.db_path, run_id, hunts)
     return analysis
+
+
+# --- Pre-patch: one advisory from the feed inbox -------------------------------------------
+
+
+def run_prepatch(
+    advisory_id: str,
+    settings: Settings,
+    client: LLMClient,
+    *,
+    attack: AttackLookup | None = None,
+    schema: KqlSchema | None = None,
+    now: datetime | None = None,
+) -> PrepatchResult:
+    found = find_advisory(settings.inbox_dir, advisory_id)
+    if found is None:
+        raise AnalyseError(
+            f"{advisory_id} is not in the inbox; run: cti-agent fetch --id {advisory_id}"
+        )
+    entry, inbox_day = found
+    advisory = VulnAdvisory.model_validate(entry["advisory"])
+    triage = entry["triage"]
+    watched = next(
+        (w for w in load_watchlist(settings.watchlist_file) if w.name == triage["product"]), None
+    )
+    if watched is None:
+        raise AnalyseError(
+            f"{advisory.id} doesn't match a product on the watchlist, so there is no process "
+            "or inventory name to hunt for; add the product to data/watchlist.toml first"
+        )
+
+    attack = attack or AttackIndex(*settings.attack_bundles())
+    schema = schema or KqlSchema.load(settings.kql_schema_file)
+    tables = schema_text(settings.kql_schema_file)
+    now = now or datetime.now(UTC)
+    first = entry["records"][0]
+    run_id = f"{now:%Y%m%dT%H%M%SZ}-{_safe_id(advisory.id)}-{secrets.token_hex(2)}"
+    out_dir = settings.out_dir / run_id
+    out_dir.mkdir(parents=True, exist_ok=False)
+    tracer = Tracer(run_id, out_dir / "trace.jsonl", settings)
+    prompt = load_prompt("prepatch")
+    provenance = Provenance(
+        source_file=advisory.id,
+        source_sha256=first["sha256"],
+        source_kind="feed",
+        source_name=", ".join(sorted({r["source"] for r in entry["records"]})),
+        fetched_from=", ".join(r["url"] for r in entry["records"]),
+        fetched_at=datetime.fromisoformat(entry["fetched_at"]),
+        tlp="CLEAR",
+        ingested_at=now,
+        run_id=run_id,
+        prompt_version=prompt.version,
+        model=settings.extract_model,
+    )
+    tracer.record(
+        stage="prepatch", step="load", outcome="ok",
+        detail=f"{advisory.id} from {inbox_day.name}; triage {triage}",
+    )  # fmt: skip
+
+    text = advisory_text(advisory)
+    source = SourceIndex([text])
+    extracted = traced_call(
+        client=client, tracer=tracer, stage="prepatch", step="extract",
+        model=settings.extract_model, system=prompt.text,
+        user=f"Advisory {advisory.id}\n\n{wrap_untrusted(text)}",
+        schema=PrepatchExtraction, max_tokens=settings.extract_max_output_tokens,
+        effort=settings.extract_effort,
+    )  # fmt: skip
+    extraction = extracted.parsed if extracted is not None else None
+    observables, rejected = verify_observables(extraction, source) if extraction else ([], [])
+
+    retire = retire_when(advisory, watched.name, now)
+    technique = choose_technique(extraction, source, attack)
+    hunts = [exposure_hunt(advisory, watched, technique.attack_id, schema, retire)]
+
+    analyst_prompt, reviewer_prompt = load_prompt("analyst"), load_prompt("reviewer")
+    evidence = [o.evidence.quote for o in observables] or [first_sentence(advisory.description)]
+    surroundings = behaviour_surroundings(advisory, extraction)
+    facts = behaviour_context(advisory, watched, triage["signals"])
+    hunt, outcome = draft_hunt(
+        technique, evidence, None,
+        client=client, tracer=tracer, settings=settings,
+        system=analyst_prompt.text.replace("{schema}", tables),
+        prompt_version=analyst_prompt.version, schema=schema, kind="behaviour",
+        surroundings=surroundings,
+        extra=facts,
+    )  # fmt: skip
+    if hunt is not None:
+        hunt = review_hunt(
+            hunt, evidence,
+            client=client, tracer=tracer, settings=settings,
+            system=reviewer_prompt.text.replace("{schema}", tables),
+            surroundings=surroundings, facts=facts,
+        )  # fmt: skip
+        hunts.append(
+            hunt.model_copy(
+                update={"retire_when": retire, "draft_id": f"{_safe_id(advisory.id)}-behaviour"}
+            )
+        )
+
+    result = PrepatchResult(
+        run_id=run_id,
+        advisory=advisory,
+        product=watched.name,
+        signals=triage["signals"],
+        extraction=extraction,
+        observables=observables,
+        rejected_observables=rejected
+        + ([] if hunt else [f"behaviour hunt not drafted: {outcome}"]),
+        hunts=hunts,
+        retire_when=retire,
+    )
+    write_hunts(hunts, out_dir / "hunts")
+    _write_json(out_dir / "prepatch.json", result.model_dump(mode="json"))
+    _write_json(out_dir / "provenance.json", provenance.model_dump(mode="json"))
+    (out_dir / "brief.md").write_text(render_prepatch_brief(result, provenance), encoding="utf-8")
+    save_run_row(
+        settings.db_path, provenance, "complete" if hunt else "partial",
+        {"hunts": len(hunts), "advisory": advisory.id},
+    )  # fmt: skip
+    save_drafts(settings.db_path, run_id, hunts)
+    return result
+
+
+def _safe_id(identifier: str) -> str:
+    return "".join(c if c.isalnum() or c == "-" else "_" for c in identifier)
