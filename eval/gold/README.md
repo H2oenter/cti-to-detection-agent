@@ -5,10 +5,11 @@ A gold file says what a person, not the tool, believes a report contains. `cti-a
 ## Steps
 
 1. Put the report, and CISA's STIX JSON for it if there is one, in `reports/`.
-2. Run the helper. It's deterministic: no model and no network.
+2. Run the helper with the project's Python: activate `.venv` first, or call it directly as below. It's deterministic: no model and no network.
    ```bash
-   python scripts/gold_draft.py reports/aa26-222a.pdf --stix reports/aa26-222a-stix.json
+   .venv/Scripts/python scripts/gold_draft.py reports/aa26-222a.pdf --stix reports/aa26-222a-stix.json
    ```
+   (On Linux or macOS, use `.venv/bin/python`.)
 3. Open `eval/gold/<id>.draft.json` with the report beside it. The helper has already:
    - pre-filled `gold.indicators` with values found in **both** the text and CISA's STIX;
    - pre-filled `gold.techniques` with every technique ID printed in the text;

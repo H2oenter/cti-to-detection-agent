@@ -14,8 +14,12 @@ import json
 import sys
 from pathlib import Path
 
-from cti_agent.evaluation.candidates import draft
-from cti_agent.inputs import load_source
+try:
+    from cti_agent.evaluation.candidates import draft
+    from cti_agent.inputs import load_source
+except ModuleNotFoundError as exc:  # a Python outside the project's virtual environment
+    sys.exit(f"{exc}. Run it with the project's Python: .venv\\Scripts\\python on Windows, "
+             ".venv/bin/python elsewhere, or activate .venv first.")  # fmt: skip
 
 
 def main() -> int:

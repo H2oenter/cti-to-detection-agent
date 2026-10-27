@@ -16,19 +16,24 @@ import os
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from rich.console import Console
-from rich.text import Text
-from typer.testing import CliRunner
+try:
+    from rich.console import Console
+    from rich.text import Text
+    from typer.testing import CliRunner
 
-from cti_agent import cli
-from cti_agent.audit import current_actor
-from cti_agent.config import Settings
-from cti_agent.review_ui import run_review
-from cti_agent.stages.gate import Gate
+    from cti_agent import cli
+    from cti_agent.audit import current_actor
+    from cti_agent.config import Settings
+    from cti_agent.review_ui import run_review
+    from cti_agent.stages.gate import Gate
+except ModuleNotFoundError as exc:  # a Python outside the project's virtual environment
+    sys.exit(f"{exc}. Run it with the project's Python: .venv\\Scripts\\python on Windows, "
+             ".venv/bin/python elsewhere, or activate .venv first.")  # fmt: skip
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
