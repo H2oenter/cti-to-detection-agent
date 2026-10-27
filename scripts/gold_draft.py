@@ -164,6 +164,8 @@ def finish(draft_path: Path, force: bool) -> int:
     print(f"  techniques: {len(g.techniques)} required, {len(g.optional_techniques)} optional")
     print(f"  actors: {', '.join(g.actors)}   CVEs: {len(g.cves)}")
     print(f"  pinned to {g.source.file} (SHA-256 {g.source.sha256[:12]}...), which still matches")
+    if done.made:
+        print(f"  decided: {done.made}")
     for note in done.notes:
         print(f"Check: {note}")
     return 0

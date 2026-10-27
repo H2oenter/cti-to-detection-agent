@@ -23,6 +23,13 @@ A gold file says what a person, not the tool, believes a report contains. `cti-a
    | `o` | optional | optional | |
    | `x` | out | out | out |
 
+   - **Groups first.** Before going one by one, it offers whole groups, one `y`/`n` each:
+     - the values CISA itself lists as indicators in its STIX file, to mark gold. CISA is independent of this tool, so this is a sound answer key;
+     - the reporting agencies' own contact addresses and websites, to mark out;
+     - file names that look like domains (`netscan.lic`), to mark out;
+     - placeholder names (`targetsname-sso.com`), to mark out.
+
+     The values and their context are listed first. `n` means you decide those one by one.
    - Each section starts with a short reminder of its rules. Values also found in CISA's STIX are marked, and values found *only* in the STIX are left out without asking.
    - `b` goes back, `s` skips for now, and `q` stops. Every decision is saved as you make it, so you can stop at any point; the next `--label` picks up where you left off. Add `--all` to go through decided ones again.
    - `a` marks **every** undecided candidate gold (required, for techniques; kept, for CVEs), including any you skipped, and moves on to saving. It asks first, and shows how many of each kind that covers.

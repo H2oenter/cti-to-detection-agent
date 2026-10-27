@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from rich.console import Console
 from rich.text import Text
@@ -73,11 +74,67 @@ def candidates(drafted: dict) -> list[Candidate]:
     """Indicators (those also in the publisher's STIX first), then techniques, then CVEs.
     Values only in the STIX file aren't asked about: the rules leave them out."""
     found = drafted["indicator_candidates"]
-    items = [_candidate("indicator", c, "also in CISA's STIX") for c in found["in_text_and_stix"]]
+    items = [_candidate("indicator", c, PUBLISHER_HINT) for c in found["in_text_and_stix"]]
     items += [_candidate("indicator", c) for c in found["text_only"]]
     items += [_candidate("technique", c) for c in drafted["technique_candidates"]]
     items += [_candidate("cve", c) for c in drafted["cve_candidates"]]
     return items
+
+
+# Groups a person can confirm with one key, before going one by one. The trap rules are the
+# labelling guide's own, kept here rather than borrowed from the validator, so the labels stay
+# independent of the system they measure.
+PUBLISHER_HINT = "also in CISA's STIX"
+AGENCY_DOMAINS = (
+    "cisa.gov", "dhs.gov", "us-cert.gov", "stopransomware.gov", "fbi.gov", "ic3.gov",
+    "nsa.gov", "ncsc.gov.uk", "cyber.gov.au", "cyber.gc.ca", "ncsc.govt.nz", "cert.govt.nz",
+)  # fmt: skip
+FILE_SUFFIXES = {
+    "lic", "xml", "exe", "dll", "bat", "cmd", "ps1", "vbs", "txt", "log", "dat", "tmp",
+    "conf", "ini", "json", "zip", "rar", "7z", "iso", "msi", "sh", "py", "jar", "db",
+}  # fmt: skip
+PLACEHOLDER_WORDS = re.compile(
+    r"targetsname|targetname|targetcompany|target-company|yourcompany|companyname|victim"
+    r"|example\.(?:com|net|org)|\bxxx+",
+    re.IGNORECASE,
+)
+GROUPS = {
+    "publisher": ("CISA's STIX file lists these as indicators of this activity", "gold"),
+    "agency": ("These are the reporting agencies' own contact addresses and websites", "out"),
+    "filename": ("These look like file names, not domains", "out"),
+    "placeholder": ("These look like placeholder or example names", "out"),
+}
+
+
+def trap(c: Candidate) -> str | None:
+    """Which out-group a text-only indicator candidate falls in, if any."""
+    if c.section != "indicator" or c.hint:
+        return None
+    value = c.value.lower()
+    host = {"email": value.rpartition("@")[2], "domain": value,
+            "url": (urlsplit(value).hostname or "")}.get(c.kind, "")  # fmt: skip
+    if host and any(host == d or host.endswith("." + d) for d in AGENCY_DOMAINS):
+        return "agency"
+    if c.kind == "domain" and host.rpartition(".")[2] in FILE_SUFFIXES:
+        return "filename"
+    if PLACEHOLDER_WORDS.search(value):
+        return "placeholder"
+    return None
+
+
+def groups(
+    items: list[Candidate], decisions: dict[str, str]
+) -> dict[str, tuple[str, str, list[Candidate]]]:
+    """{group: (title, decision, undecided members)} for the groups that have any."""
+    members: dict[str, list[Candidate]] = {name: [] for name in GROUPS}
+    for c in items:
+        if c.key in decisions:
+            continue
+        if c.section == "indicator" and c.hint == PUBLISHER_HINT:
+            members["publisher"].append(c)
+        elif group := trap(c):
+            members[group].append(c)
+    return {name: (*GROUPS[name], found) for name, found in members.items() if found}
 
 
 def _candidate(section: str, raw: dict, hint: str = "") -> Candidate:
@@ -93,24 +150,41 @@ def run_labelling(
     ask_text: AskText,
     names: Callable[[str], str | None] = lambda attack_id: None,
     include_decided: bool = False,
+    offer_groups: bool = True,
     today: date | None = None,
 ) -> Labelled:
     drafted = json.loads(draft_path.read_text(encoding="utf-8"))
     record = drafted.setdefault("labelling", {})
     decisions: dict[str, str] = record.setdefault("decisions", {})
     bulk: list[str] = record.setdefault("bulk", [])  # decided by "all the rest", not one by one
+    grouped: dict[str, list[str]] = record.setdefault("groups", {})  # decided as a group
     items = candidates(drafted)
-    queue = [c for c in items if include_decided or c.key not in decisions]
     left_out = len(drafted["indicator_candidates"]["stix_only"])
     console.print(
         f"[bold]{drafted['report_id']}[/bold]: {len(items)} candidates, "
-        f"{len(items) - len(queue)} already decided. Open {drafted['gold']['source']['file']} "
-        "beside this and read each page as it comes up."
+        f"{sum(c.key in decisions for c in items)} already decided. Open "
+        f"{drafted['gold']['source']['file']} beside this and read each page as it comes up."
     )
     if left_out:
         console.print(f"[dim]{left_out} values only in CISA's STIX are left out: the model "
                       "reads the text, so it can't find them.[/dim]")  # fmt: skip
 
+    if offer_groups and not include_decided:
+        for group, (title, decision, members) in groups(items, decisions).items():
+            console.print(f"\n[bold]{title}[/bold] ({len(members)})")
+            for c in members:
+                pages = ", ".join(str(p) for p in c.pages) or "?"
+                console.print(Text(f"  {c.value}  ({c.kind}, page {pages})  ", style="cyan")
+                              + Text(f"…{c.context[:90]}…", style="dim"))  # fmt: skip
+            question = f"Mark all {len(members)} {decision}? [y] yes  [n] decide one by one"
+            if ask(question, ["y", "n"]) == "y":
+                for c in members:
+                    decisions[c.key] = decision
+                grouped.setdefault(group, []).extend(c.key for c in members)
+                _apply(drafted, items, decisions)
+                _save(draft_path, drafted)
+
+    queue = [c for c in items if include_decided or c.key not in decisions]
     position, stopped, section = 0, False, None
     while position < len(queue):
         item = queue[position]
@@ -148,6 +222,9 @@ def run_labelling(
         decisions[item.key] = choices[key]
         if item.key in bulk:
             bulk.remove(item.key)  # looked at one by one after all
+        for keys in grouped.values():
+            if item.key in keys:
+                keys.remove(item.key)
         _apply(drafted, items, decisions)
         _save(draft_path, drafted)
         position += 1

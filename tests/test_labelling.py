@@ -10,7 +10,7 @@ import pytest
 from conftest import FIXTURES, ROOT
 from rich.console import Console
 
-from cti_agent.evaluation.candidates import draft, finish_draft
+from cti_agent.evaluation.candidates import draft, finish_draft, how_labelled
 from cti_agent.evaluation.gold import load_gold
 from cti_agent.evaluation.labelling import candidates, run_labelling
 from cti_agent.inputs import load_source
@@ -77,6 +77,7 @@ class Labeller:
 
 
 def session(path, labeller, **kwargs):
+    kwargs.setdefault("offer_groups", False)  # these tests go one by one; groups have their own
     out = io.StringIO()
     result = run_labelling(path, Console(file=out, width=120), ask=labeller.ask,
                            ask_text=labeller.ask_text, today=date(2026, 11, 2),
@@ -176,6 +177,56 @@ def test_entries_added_by_hand_survive_and_all_shows_decisions_again(draft_path)
     assert len(gold["indicators"]) == 2  # the hand-added one and 198.51.101.7, not twice
 
 
+TRAPS = (
+    "Report incidents to report@cisa.gov or see stopransomware.gov for more.\n"
+    "The actors dropped netscan.lic and netscanNEW.zip on the file server.\n"
+    "C2 at 198.51.101[.]7. Their portals mimicked targetsname-sso.com.\n"
+)
+
+
+def test_groups_cisas_stix_and_obvious_traps(tmp_path):
+    (tmp_path / "reports").mkdir()
+    report = tmp_path / "reports" / "traps.txt"
+    report.write_text(TRAPS, encoding="utf-8")
+    stix = tmp_path / "reports" / "traps-stix.json"
+    stix.write_text(json.dumps({"type": "bundle", "objects": [
+        {"type": "indicator", "pattern": "[ipv4-addr:value = '198.51.101.7']"},
+    ]}), encoding="utf-8")  # fmt: skip
+    path = tmp_path / "traps.draft.json"
+    path.write_text(json.dumps(draft(load_source(report), "traps", stix)), encoding="utf-8")
+
+    asked = []
+    keys = iter(["y", "y", "n", "y", "x", "x"])  # publisher, agency, file names (no), placeholder
+
+    def ask(prompt, choices):
+        asked.append(prompt)
+        return next(keys)
+
+    out = io.StringIO()
+    result = run_labelling(path, Console(file=out, width=120), ask=ask,
+                           ask_text=lambda prompt, default: METADATA.get(prompt.split(",")[0],
+                                                                         default),
+                           today=date(2026, 11, 2))  # fmt: skip
+    assert result.complete
+    assert asked[:4] == [
+        "Mark all 1 gold? [y] yes  [n] decide one by one",
+        "Mark all 2 out? [y] yes  [n] decide one by one",
+        "Mark all 2 out? [y] yes  [n] decide one by one",
+        "Mark all 1 out? [y] yes  [n] decide one by one",
+    ]
+    shown = out.getvalue()
+    assert "CISA's STIX file lists these" in shown and "look like file names" in shown
+    record = json.loads(path.read_text(encoding="utf-8"))["labelling"]
+    assert {name: len(keys) for name, keys in record["groups"].items()} == {
+        "publisher": 1, "agency": 2, "placeholder": 1,
+    }  # fmt: skip
+    gold = json.loads(path.read_text(encoding="utf-8"))["gold"]
+    assert gold["indicators"] == [{"kind": "ipv4", "value": "198.51.101.7"}]
+    assert how_labelled(json.loads(path.read_text(encoding="utf-8"))) == (
+        "2 one by one, 1 as CISA's STIX group, 3 out by rule group"
+    )
+
+
 def test_the_script_end_to_end(tmp_path, monkeypatch, capsys):
     """Start a draft, refuse to overwrite it once it holds decisions, label it from the
     keyboard (a wrong key included), and save the gold file."""
@@ -196,7 +247,8 @@ def test_the_script_end_to_end(tmp_path, monkeypatch, capsys):
     assert run(report, "--out", tmp_path)[0] == 0
     path = tmp_path / "fx.draft.json"
     order = [c.value for c in candidates(json.loads(path.read_text("utf-8")))]
-    code, shown = run("--label", path, keys=["z", DECIDE[order[0]], "q"])
+    # The placeholder group is offered first: a wrong key, then "no", then one decision.
+    code, shown = run("--label", path, keys=["z", "n", DECIDE[order[0]], "q"])
     assert code == 0 and "Press one of" in shown.out
 
     code, shown = run(report, "--out", tmp_path)
@@ -204,6 +256,7 @@ def test_the_script_end_to_end(tmp_path, monkeypatch, capsys):
 
     meta = ["Fixture advisory", "https://www.cisa.gov/fixture", "Fixture Lynx", "Samuel Omiwole",
             "", ""]  # fmt: skip
-    code, shown = run("--label", path, keys=[DECIDE[v] for v in order[1:]] + meta)
+    rest = [DECIDE[v] for v in order[1:] if v != "targetsname-sso.com"]
+    code, shown = run("--label", path, keys=["y", *rest, *meta])  # this time, yes to the group
     assert code == 0, shown.err
     assert "Saved" in shown.out and (tmp_path / "fx.json").exists()

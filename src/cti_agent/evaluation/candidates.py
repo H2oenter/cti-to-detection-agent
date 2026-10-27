@@ -179,6 +179,24 @@ class Finished:
     path: Path
     gold: GoldReport
     notes: list[str]  # things worth a second look; none of them stop the save
+    made: str | None = None  # how the labels were decided, if --label was used
+
+
+def how_labelled(drafted: dict) -> str | None:
+    """'40 one by one, 19 as CISA's STIX group, 4 out by rule group, 35 with [a]'."""
+    record = drafted.get("labelling") or {}
+    decisions = record.get("decisions") or {}
+    if not decisions:
+        return None
+    grouped = record.get("groups") or {}
+    publisher = len(grouped.get("publisher", []))
+    by_rule = sum(len(keys) for name, keys in grouped.items() if name != "publisher")
+    bulk = len(record.get("bulk") or [])
+    parts = [f"{len(decisions) - publisher - by_rule - bulk} one by one"]
+    parts += [f"{publisher} as CISA's STIX group"] if publisher else []
+    parts += [f"{by_rule} out by rule group"] if by_rule else []
+    parts += [f"{bulk} with [a]"] if bulk else []
+    return ", ".join(parts)
 
 
 def finish_draft(draft_path: Path, out_dir: Path | None = None, *, force: bool = False) -> Finished:
@@ -212,7 +230,7 @@ def finish_draft(draft_path: Path, out_dir: Path | None = None, *, force: bool =
     if path.exists() and not force:
         raise GoldError(f"{path} already exists; pass --force to replace it")
     path.write_text(json.dumps(section, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return Finished(path, gold, _second_looks(drafted, section))
+    return Finished(path, gold, _second_looks(drafted, section), how_labelled(drafted))
 
 
 def _filled(section: dict, name: str) -> bool:
