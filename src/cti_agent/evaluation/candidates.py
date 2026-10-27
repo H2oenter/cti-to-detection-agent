@@ -12,6 +12,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
@@ -222,9 +223,14 @@ def _filled(section: dict, name: str) -> bool:
 
 
 def _second_looks(drafted: dict, section: dict) -> list[str]:
-    """Parts of the labels still exactly as the helper pre-filled them. That can be right,
-    but it's also what an unreviewed section looks like."""
+    """Parts of the labels still exactly as the helper pre-filled them, or accepted in bulk.
+    That can be right, but it's also what an unreviewed section looks like."""
     notes = []
+    if bulk := drafted.get("labelling", {}).get("bulk"):
+        kinds = Counter(key.split(":", 1)[0] for key in bulk)
+        parts = ", ".join(f"{n} {kind}{'s' if n > 1 else ''}" for kind, n in kinds.items())
+        notes.append(f"{len(bulk)} candidates were marked gold in one go with [a], without being "
+                     f"shown one by one ({parts}).")  # fmt: skip
     prefilled = [c["value"] for c in drafted.get("technique_candidates", [])]
     if section["techniques"] == prefilled and not section["optional_techniques"]:
         notes.append(

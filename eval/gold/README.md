@@ -25,6 +25,9 @@ A gold file says what a person, not the tool, believes a report contains. `cti-a
 
    - Each section starts with a short reminder of its rules. Values also found in CISA's STIX are marked, and values found *only* in the STIX are left out without asking.
    - `b` goes back, `s` skips for now, and `q` stops. Every decision is saved as you make it, so you can stop at any point; the next `--label` picks up where you left off. Add `--all` to go through decided ones again.
+   - `a` marks **every** undecided candidate gold (required, for techniques; kept, for CVEs), including any you skipped, and moves on to saving. It asks first, and shows how many of each kind that covers.
+     - Use it once what's left is all clearly gold, for example the rest of a technique table. It also takes any placeholders or contact addresses still waiting, so press it only after the indicators are done.
+     - The save step lists how many labels went in this way. A candidate you later look at one by one, with `--label --all`, stops counting as bulk.
    - When every candidate is decided, it asks for the title, advisory URL, actors, your name, the date and any notes.
    - Then it checks the labels the way the eval will read them and saves `eval/gold/<id>.json`. It writes nothing if:
      - a field is blank;

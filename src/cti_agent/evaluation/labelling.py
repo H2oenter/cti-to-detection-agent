@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -26,7 +27,7 @@ CHOICES = {
     "technique": {"g": "required", "o": "optional", "x": "out"},
     "cve": {"g": "keep", "x": "out"},
 }
-MOVES = {"b": "back", "s": "skip for now", "q": "save and stop"}
+MOVES = {"a": "all the rest gold", "b": "back", "s": "skip for now", "q": "save and stop"}
 
 RULES = {
     "indicator": (
@@ -95,7 +96,9 @@ def run_labelling(
     today: date | None = None,
 ) -> Labelled:
     drafted = json.loads(draft_path.read_text(encoding="utf-8"))
-    decisions: dict[str, str] = drafted.setdefault("labelling", {}).setdefault("decisions", {})
+    record = drafted.setdefault("labelling", {})
+    decisions: dict[str, str] = record.setdefault("decisions", {})
+    bulk: list[str] = record.setdefault("bulk", [])  # decided by "all the rest", not one by one
     items = candidates(drafted)
     queue = [c for c in items if include_decided or c.key not in decisions]
     left_out = len(drafted["indicator_candidates"]["stix_only"])
@@ -128,7 +131,23 @@ def run_labelling(
         if key == "s":
             position += 1
             continue
+        if key == "a":
+            rest = [c for c in items if c.key not in decisions]
+            if not rest:
+                console.print("Nothing undecided is left.")
+                continue
+            if ask(_bulk_question(rest), ["y", "n"]) != "y":
+                continue
+            for c in rest:
+                decisions[c.key] = CHOICES[c.section]["g"]
+            bulk.extend(c.key for c in rest)
+            _apply(drafted, items, decisions)
+            _save(draft_path, drafted)
+            console.print(f"[bold]{len(rest)}[/bold] candidates marked gold.")
+            break
         decisions[item.key] = choices[key]
+        if item.key in bulk:
+            bulk.remove(item.key)  # looked at one by one after all
         _apply(drafted, items, decisions)
         _save(draft_path, drafted)
         position += 1
@@ -141,6 +160,13 @@ def run_labelling(
         console.print(f"\n{undecided} candidates still to decide. Your decisions so far are "
                       "saved; run --label again to carry on.")  # fmt: skip
     return Labelled(len(items) - undecided, undecided, stopped)
+
+
+def _bulk_question(rest: list[Candidate]) -> str:
+    counts = Counter(c.section for c in rest)
+    parts = ", ".join(f"{n} {s}{'s' if n > 1 else ''}" for s, n in counts.items())
+    return (f"Mark every undecided candidate gold ({parts}), including any skipped, without "
+            "seeing them one by one? [y] yes  [n] no")  # fmt: skip
 
 
 def _render(item: Candidate, position: int, total: int, current: str | None,

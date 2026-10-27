@@ -126,6 +126,41 @@ def test_skipping_leaves_it_undecided_and_saves_no_gold_file(draft_path):
     assert labeller.prompts == [] and "1 candidates still to decide" in shown
 
 
+def test_all_the_rest_marks_every_undecided_candidate_gold(draft_path):
+    order = Labeller(draft_path).order
+    labeller = Labeller(draft_path, extra=["s"]).script(order[1])  # skip one, decide one
+    labeller.keys += ["a", "y"]
+    result, shown = session(draft_path, labeller)
+    assert result.complete and "5 candidates marked gold" in shown
+
+    done = finish_draft(draft_path)
+    [note] = [n for n in done.notes if "in one go" in n]
+    assert note.startswith("5 candidates were marked gold")
+    assert "2 indicators, 2 techniques, 1 cve" in note
+    gold = json.loads(done.path.read_text(encoding="utf-8"))
+    # It takes everything left, the skipped one and the placeholder included.
+    assert {"kind": "ipv4", "value": "198.51.101.7"} in gold["indicators"]
+    assert {"kind": "domain", "value": "targetsname-sso.com"} in gold["indicators"]
+    assert gold["optional_indicators"] == [{"kind": "domain", "value": "update-portal-fixture.net"}]
+    assert gold["techniques"] == ["T1219", "T1566.004"] and gold["cves"] == ["CVE-2024-55591"]
+
+
+def test_saying_no_to_all_the_rest_changes_nothing(draft_path):
+    order = Labeller(draft_path).order
+    labeller = Labeller(draft_path, extra=["a", "n"]).script(*order)
+    result, _ = session(draft_path, labeller)
+    assert result.complete and labeller.asked == 8  # [a], [n], then the six decisions
+    assert json.loads(draft_path.read_text(encoding="utf-8"))["labelling"]["bulk"] == []
+
+
+def test_a_bulk_decision_looked_at_again_stops_being_bulk(draft_path):
+    session(draft_path, Labeller(draft_path, extra=["a", "y"]))
+    order = Labeller(draft_path).order
+    session(draft_path, Labeller(draft_path).script(*order), include_decided=True)
+    assert json.loads(draft_path.read_text(encoding="utf-8"))["labelling"]["bulk"] == []
+    assert not [n for n in finish_draft(draft_path).notes if "in one go" in n]
+
+
 def test_entries_added_by_hand_survive_and_all_shows_decisions_again(draft_path):
     drafted = json.loads(draft_path.read_text(encoding="utf-8"))
     drafted["gold"]["indicators"].append({"kind": "ipv4", "value": "203.0.113.9"})
