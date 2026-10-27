@@ -14,8 +14,19 @@ A gold file says what a person, not the tool, believes a report contains. `cti-a
    - pre-filled `gold.indicators` with values found in **both** the text and CISA's STIX;
    - pre-filled `gold.techniques` with every technique ID printed in the text;
    - left everything else in `indicator_candidates.text_only` for you to decide.
-4. Apply the rules below. Then fill in `title`, `source.url`, `actors`, `labelled_by` and `labelled_on`, and save the `gold` section on its own as `eval/gold/<id>.json`.
-5. Don't run the tool on the report or look at its output until you've finished labelling. Labels have to be independent of the thing they measure.
+4. Apply the rules below to the draft's `gold` section. Then fill in `title`, `source.url`, `actors`, `labelled_by` and `labelled_on` (a date: `2026-11-02`).
+5. Save it as a gold file:
+   ```bash
+   .venv/Scripts/python scripts/gold_draft.py --finish eval/gold/aa26-222a.draft.json
+   ```
+   This checks the section the way the eval will read it, and then writes `eval/gold/aa26-222a.json`. It writes nothing if:
+   - any of those fields is blank;
+   - a value or ID doesn't parse;
+   - something is both required and optional;
+   - the report has changed since the draft was made.
+
+   It also points out any part still exactly as the helper pre-filled it. That can be right, but check it. To redo a saved file, edit the draft and finish again with `--force`.
+6. Don't run the tool on the report or look at its output until you've finished labelling. Labels have to be independent of the thing they measure.
 
 ## Rules
 

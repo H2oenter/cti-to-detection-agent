@@ -3,7 +3,8 @@
 Lists every technique ID and indicator-like string in a report, with page and context,
 and cross-checks indicators against the publisher's own STIX file. The person labelling
 decides; this only makes sure nothing in the text is overlooked. It never uses the
-system under test, so the labels stay independent of it.
+system under test, so the labels stay independent of it. When the labelling is done,
+finish_draft() checks the draft the way the eval will read it and saves the gold file.
 """
 
 from __future__ import annotations
@@ -12,8 +13,11 @@ import ipaddress
 import json
 import re
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
 
+from cti_agent.evaluation.gold import GoldError, GoldReport
+from cti_agent.evaluation.runner import EvalError, pinned_source
 from cti_agent.inputs import SourceDoc
 from cti_agent.stages.validator import normalise_value
 from cti_agent.util.normalise import collapse_ws, fold, refang
@@ -138,8 +142,9 @@ def draft(doc: SourceDoc, report_id: str, stix: Path | None = None) -> dict:
         "report_id": report_id,
         "generated_by": "scripts/gold_draft.py (deterministic: no model, no network)",
         "how_to_use": (
-            "Check every candidate against the report and eval/gold/README.md, then edit "
-            "'gold' and save it as eval/gold/<report_id>.json. The eval never reads drafts."
+            "Check every candidate against the report and eval/gold/README.md and edit "
+            "'gold', then run: python scripts/gold_draft.py --finish <this file>. "
+            "The eval never reads drafts."
         ),
         "indicator_candidates": {
             k: [asdict(c) if isinstance(c, Candidate) else c for c in v] for k, v in buckets.items()
@@ -161,3 +166,78 @@ def draft(doc: SourceDoc, report_id: str, stix: Path | None = None) -> dict:
             "notes": "",
         },
     }
+
+
+# What a person must fill in before a draft can become a gold file.
+REQUIRED_METADATA = ("title", "source.url", "labelled_by", "labelled_on", "actors")
+_REPORT_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+@dataclass
+class Finished:
+    path: Path
+    gold: GoldReport
+    notes: list[str]  # things worth a second look; none of them stop the save
+
+
+def finish_draft(draft_path: Path, out_dir: Path | None = None, *, force: bool = False) -> Finished:
+    """Check a labelled draft the way the eval will read it, then save its gold section as
+    <report_id>.json next to it. Raises GoldError, and writes nothing, if the metadata isn't
+    filled in, the labels don't load, or the report has changed since it was labelled."""
+    try:
+        drafted = json.loads(draft_path.read_text(encoding="utf-8"))
+        section = drafted["gold"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise GoldError(f"{draft_path}: not a draft from gold_draft.py ({exc!r})") from exc
+    if blank := [name for name in REQUIRED_METADATA if not _filled(section, name)]:
+        raise GoldError(f"{draft_path.name}: fill in {', '.join(blank)} first")
+    try:
+        date.fromisoformat(section["labelled_on"])
+    except ValueError:
+        raise GoldError(f"labelled_on should be a date like 2026-11-02, not "
+                        f"{section['labelled_on']!r}") from None  # fmt: skip
+    try:
+        gold = GoldReport.model_validate(section)
+    except ValueError as exc:
+        raise GoldError(f"{draft_path.name}: {exc}") from exc
+    if not _REPORT_ID.fullmatch(gold.report_id):
+        raise GoldError(f"report_id {gold.report_id!r}: use lower-case letters, digits and -")
+    try:
+        pinned_source(gold)
+    except EvalError as exc:
+        raise GoldError(str(exc)) from exc
+
+    path = (out_dir or draft_path.parent) / f"{gold.report_id}.json"
+    if path.exists() and not force:
+        raise GoldError(f"{path} already exists; pass --force to replace it")
+    path.write_text(json.dumps(section, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return Finished(path, gold, _second_looks(drafted, section))
+
+
+def _filled(section: dict, name: str) -> bool:
+    value: object = section
+    for part in name.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return bool(value.strip()) if isinstance(value, str) else bool(value)
+
+
+def _second_looks(drafted: dict, section: dict) -> list[str]:
+    """Parts of the labels still exactly as the helper pre-filled them. That can be right,
+    but it's also what an unreviewed section looks like."""
+    notes = []
+    prefilled = [c["value"] for c in drafted.get("technique_candidates", [])]
+    if section["techniques"] == prefilled and not section["optional_techniques"]:
+        notes.append(
+            f"techniques: all {len(prefilled)} IDs printed in the text are required, as the "
+            "helper pre-filled them. Tool capabilities belong in optional_techniques."
+        )
+    candidates = drafted.get("indicator_candidates", {})
+    text_only = candidates.get("text_only", [])
+    seeded = [{"kind": c["kind"], "value": c["value"]}
+              for c in candidates.get("in_text_and_stix", [])]  # fmt: skip
+    if text_only and section["indicators"] == seeded and not section["optional_indicators"]:
+        notes.append(
+            f"indicators: none of the {len(text_only)} text-only candidates was added. "
+            "Fine if they're all placeholders, contacts, tools or references."
+        )
+    return notes

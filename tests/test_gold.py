@@ -4,7 +4,12 @@ import pytest
 from conftest import FIXTURES
 from pydantic import ValidationError
 
-from cti_agent.evaluation.candidates import draft, stix_indicators, text_candidates
+from cti_agent.evaluation.candidates import (
+    draft,
+    finish_draft,
+    stix_indicators,
+    text_candidates,
+)
 from cti_agent.evaluation.gold import GoldError, GoldReport, load_gold
 from cti_agent.inputs import load_source
 from cti_agent.stages.validator import normalise_value
@@ -103,3 +108,79 @@ def test_stix_cross_check_seeds_only_values_in_both(tmp_path):
 
 def test_html_file_names_are_not_domains():
     assert normalise_value("domain", "modus-operandi.html") is None
+
+
+# --- finishing a labelled draft -------------------------------------------------------------
+
+SIGNED = {
+    "title": "Fixture advisory",
+    "labelled_by": "Samuel Omiwole",
+    "labelled_on": "2026-11-02",
+    "actors": ["Fixture Lynx"],
+}
+
+
+def labelled_draft(tmp_path, **changes):
+    """A draft from the helper for a small report, with the labeller's edits applied."""
+    report = tmp_path / "fx.txt"
+    report.write_text("C2 at 198.51.101[.]7 and update-portal-fixture[.]net.\n"
+                      "Actors used T1219 and T1566.004.", encoding="utf-8")  # fmt: skip
+    drafted = draft(load_source(report), "fx", None)
+    drafted["gold"]["source"]["url"] = "https://www.cisa.gov/fixture"
+    drafted["gold"].update({**SIGNED, **changes})
+    path = tmp_path / "fx.draft.json"
+    path.write_text(json.dumps(drafted), encoding="utf-8")
+    return path, report
+
+
+def test_finish_saves_what_the_eval_will_load(tmp_path):
+    path, _ = labelled_draft(
+        tmp_path,
+        indicators=[{"kind": "ipv4", "value": "198.51.101[.]7"}],
+        optional_techniques=["T1219"],
+        techniques=["T1566.004"],
+    )
+    done = finish_draft(path)
+    assert done.path == tmp_path / "fx.json" and done.notes == []
+    [loaded] = load_gold(tmp_path)  # the draft beside it is still skipped
+    assert loaded.indicators[0].value == "198.51.101.7" and loaded.techniques == ["T1566.004"]
+
+
+def test_finish_points_out_sections_left_as_pre_filled(tmp_path):
+    path, _ = labelled_draft(tmp_path)
+    notes = finish_draft(path).notes
+    assert any(n.startswith("techniques: all 2 IDs") for n in notes)
+    assert any(n.startswith("indicators: none of the 2 text-only") for n in notes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"title": "", "labelled_by": " "}, "fill in title, labelled_by first"),
+        ({"actors": []}, "fill in actors"),
+        ({"labelled_on": "2 Nov"}, "a date like"),
+        ({"techniques": ["TA0001"]}, "not technique IDs"),
+        ({"indicators": [{"kind": "domain", "value": "not a domain"}]}, "not a valid domain"),
+        ({"report_id": "../fx"}, "lower-case letters"),
+    ],
+)
+def test_finish_refuses_and_writes_nothing(tmp_path, changes, message):
+    path, _ = labelled_draft(tmp_path, **changes)
+    with pytest.raises(GoldError, match=message):
+        finish_draft(path)
+    assert not (tmp_path / "fx.json").exists()
+
+
+def test_finish_refuses_a_report_changed_since_labelling(tmp_path):
+    path, report = labelled_draft(tmp_path)
+    report.write_text(report.read_text(encoding="utf-8") + "\nUpdated.", encoding="utf-8")
+    with pytest.raises(GoldError, match="isn't the version that was labelled"):
+        finish_draft(path)
+
+
+def test_finish_keeps_an_existing_gold_file_unless_forced(tmp_path):
+    path, _ = labelled_draft(tmp_path)
+    finish_draft(path)
+    with pytest.raises(GoldError, match="--force"):
+        finish_draft(path)
+    assert finish_draft(path, force=True).path.exists()
