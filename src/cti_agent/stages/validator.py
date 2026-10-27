@@ -79,13 +79,19 @@ INJECTION_RE = re.compile(
     r"\b(?:ignore|disregard|forget)\b.{0,30}\b(?:previous|prior|above|earlier|all)\b.{0,20}"
     r"\b(?:instructions?|rules|prompts?|guidance)\b"
     r"|\b(?:system|developer) prompt\b"
-    r"|\bnew instructions?\b"
+    r"|\bnew (?:instructions?|task)\b"
     r"|\bnote to (?:ai|llms?|the model|assistants?|language models?)\b"
+    r"|\b(?:automated|ai|llm) (?:summari[sz]ers?|systems?|agents?|assistants?|models?)\b"
+    r"|\bstructured output\b"
     r"|\b(?:as an?|you are an?) (?:ai|llm|language model|assistant)\b"
     r"|\b(?:call|use|invoke|run|trigger) the \w+ (?:tool|function|command)\b"
-    r"|\badd (?:the |this |an? )?(?:indicator|ioc|domain|ip)\b.{0,60}\bconfidence\b",
+    r"|\badd (?:the |this |an? )?(?:indicator|ioc|domain|ip)\b.{0,60}\bconfidence\b"
+    # Our own wrapper tag can only appear in a report that is trying to break out of it.
+    r"|untrusted_report",
     re.IGNORECASE,
 )
+# Fake role headers, as in "SYSTEM: new task". Upper case only: "Operating System:" is prose.
+INJECTION_ROLE_RE = re.compile(r"\b(?:SYSTEM|ASSISTANT|DEVELOPER)\s*:")
 
 
 class _Reject(Exception):
@@ -208,7 +214,7 @@ class _Validator:
 
     def _not_injected(self, quote: str) -> None:
         surroundings = self.source.context(quote) or ""
-        if hit := INJECTION_RE.search(surroundings):
+        if hit := injection_hit(surroundings):
             raise _Reject(
                 "suspected_injection",
                 f"evidence sits in text addressed to an AI: {hit.group(0)[:80]!r}",
@@ -375,9 +381,13 @@ def verify_quote(source: SourceIndex, quote: str) -> RejectReason | None:
     """The evidence checks on their own, for stages outside the report path."""
     if not source.find(quote).found:
         return "quote_not_in_source"
-    if INJECTION_RE.search(source.context(quote) or ""):
+    if injection_hit(source.context(quote) or ""):
         return "suspected_injection"
     return None
+
+
+def injection_hit(text: str) -> re.Match | None:
+    return INJECTION_RE.search(text) or INJECTION_ROLE_RE.search(text)
 
 
 def normalise_value(kind: str, raw: str) -> str | None:

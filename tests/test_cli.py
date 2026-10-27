@@ -62,10 +62,10 @@ def test_help_lists_commands():
         assert command in result.output
 
 
-def test_unbuilt_commands_exit_nonzero():
-    result = runner.invoke(app, ["eval"])
+def test_stretch_publish_targets_say_so():
+    result = runner.invoke(app, ["publish", "some-run", "--target", "misp"])
     assert result.exit_code == 1
-    assert "Not implemented" in result.output
+    assert "stretch goal" in result.output
 
 
 def test_tlp_gate():

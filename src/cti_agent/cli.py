@@ -17,11 +17,15 @@ from typing import Annotated
 import click
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.table import Table
 
 from cti_agent import __version__
 from cti_agent.audit import AuditChainBroken, AuditLog, current_actor
 from cti_agent.config import Settings
+from cti_agent.evaluation.gold import GoldError
+from cti_agent.evaluation.injection import run_injection_suite
+from cti_agent.evaluation.runner import EvalError, gold_markdown, run_gold_eval, write_results
 from cti_agent.feeds.fetch import SOURCES as FEED_SOURCES
 from cti_agent.feeds.fetch import parse_since, run_fetch
 from cti_agent.inputs import InputError
@@ -81,11 +85,6 @@ def _setup() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
-
-
-def _not_yet(milestone: str) -> None:
-    console.print(f"[yellow]Not implemented yet ({milestone}).[/yellow]")
-    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -575,9 +574,67 @@ def publish(
 
 
 @app.command(name="eval")
-def eval_() -> None:
-    """Score the pipeline against the gold set and the injection tests."""
-    _not_yet("M4")
+def eval_(
+    suite: Annotated[str, typer.Option(help="gold, injection or all.")] = "all",
+    gold: Annotated[Path, typer.Option(help="Folder of gold label files.")] = Path("eval/gold"),
+    injection: Annotated[Path, typer.Option(help="Injection suite folder.")] = Path(
+        "eval/injection"
+    ),
+    replay: Annotated[
+        Path | None, typer.Option(help="Replay recorded model responses from this folder.")
+    ] = None,
+    record: Annotated[
+        Path | None, typer.Option(help="Save model responses to this folder.")
+    ] = None,
+    results: Annotated[Path, typer.Option(help="Where to write results.")] = Path("eval/results"),
+    write: Annotated[bool, typer.Option(help="Write the results files.")] = True,
+) -> None:
+    """Score the pipeline against the gold set, and run the injection suite."""
+    if suite not in ("gold", "injection", "all"):
+        raise typer.BadParameter("--suite is gold, injection or all")
+    settings = Settings()
+    client = _make_client(settings, replay, record)
+    gold_result = injection_result = None
+    try:
+        if suite in ("gold", "all"):
+            gold_result = run_gold_eval(
+                settings, client, gold, replayed=bool(replay) and not record
+            )
+        if suite in ("injection", "all"):
+            injection_result = run_injection_suite(settings, client, injection)
+    except (EvalError, GoldError, FixtureMissing, InputError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+    except FatalLLMError as exc:
+        console.print(f"[red]Model call failed, eval stopped:[/red] {exc}")
+        raise typer.Exit(code=3) from None
+
+    if gold_result:
+        console.print(Markdown(gold_markdown(gold_result)))
+        for s in gold_result.scores:
+            missed = s.false_negatives["indicators"] + s.false_negatives["techniques"]
+            extra = s.false_positives["indicators"] + s.false_positives["techniques"]
+            if missed or extra:
+                console.print(f"[dim]{s.report_id}: missed {missed or 'none'}; "
+                              f"not in gold {extra or 'none'}[/dim]")  # fmt: skip
+    if injection_result:
+        console.print(Markdown(injection_result.markdown()))
+    if write:
+        results.mkdir(parents=True, exist_ok=True)
+        if gold_result:
+            path = write_results(
+                gold_result, results, injection_result.as_dict() if injection_result else None
+            )
+        else:
+            path = results / f"{injection_result.run_at:%Y-%m-%d}-injection.md"
+            path.write_text(injection_result.markdown(), encoding="utf-8")
+            path.with_suffix(".json").write_text(
+                json.dumps(injection_result.as_dict(), indent=2) + "\n", encoding="utf-8"
+            )
+        console.print(f"Results: {path}")
+    _replay_note(replay, record)
+    if injection_result and not injection_result.passed:
+        raise typer.Exit(code=1)
 
 
 @app.command()
