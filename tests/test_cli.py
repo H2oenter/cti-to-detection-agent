@@ -63,7 +63,7 @@ def test_help_lists_commands():
 
 
 def test_unbuilt_commands_exit_nonzero():
-    result = runner.invoke(app, ["review", "some-run"])
+    result = runner.invoke(app, ["eval"])
     assert result.exit_code == 1
     assert "Not implemented" in result.output
 
@@ -151,3 +151,83 @@ def test_prepatch_replayed_from_the_cli(cli_env, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "exposure" in result.output and "behaviour" in result.output
     assert "Retire when PHP is at 8.1.29" in result.output
+
+
+@pytest.fixture
+def analysed_run(cli_env, settings, aa23_run, aa23_attack, monkeypatch):
+    """AA23-320A ingested and analysed (fake models), with the CLI pointed at it."""
+    from conftest import AA23_ATTACK, FakeAnalyst
+
+    from cti_agent.pipeline import run_analyse
+
+    run_analyse(aa23_run, settings, FakeAnalyst(bad_query_for={"T1204"}), attack=aa23_attack)
+    for key, value in {
+        "OUT_DIR": settings.out_dir,
+        "ATTACK_BUNDLE": AA23_ATTACK[0],
+        "ATTACK_MOBILE_BUNDLE": AA23_ATTACK[1],
+        "KQL_SCHEMA_FILE": settings.kql_schema_file,
+        "CTI_AGENT_REVIEWER": "sam",
+    }.items():
+        monkeypatch.setenv(key, str(value))
+    return aa23_run
+
+
+def test_review_one_item_then_show_the_audit(analysed_run, settings):
+    from cti_agent.audit import AuditLog
+    from cti_agent.stages.gate import Gate
+
+    gate = Gate(settings, analysed_run, "x", AuditLog(settings.out_dir / "audit.jsonl"))
+    first = gate.items[0].ref
+    ok = runner.invoke(app, ["review", analysed_run, "--item", first, "--approve"])
+    assert ok.exit_code == 0, ok.output
+    assert "approved by sam" in ok.output
+    missing_reason = runner.invoke(app, ["review", analysed_run, "--item", first, "--reject"])
+    assert missing_reason.exit_code == 2 and "reason" in missing_reason.output
+
+    shown = runner.invoke(app, ["audit", "--run", analysed_run, "--verify"])
+    assert shown.exit_code == 0 and "Hash chain verified" in shown.output and "sam" in shown.output
+
+
+def test_interactive_session(analysed_run, settings, monkeypatch):
+    """Approve a hunt, reject one with a reason, fail to approve the lint-failed one,
+    edit it, approve it, then approve every remaining attack-pattern in one go."""
+    import click
+
+    fixed = (
+        'DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName =~ "mshta.exe"\n'
+        "| project Timestamp, DeviceName, ProcessCommandLine"
+    )
+    monkeypatch.setattr(click, "edit", lambda text, extension=None: fixed)
+    keys = "\n".join([
+        "a",                    # T1199 approve
+        "a", "e", "a",          # T1204: approve refused (lint), edit, then approve
+        "r", "too noisy here",  # T1648 reject with reason
+        "s", "s",               # skip the other two hunts
+        "a",                    # threat actor
+        "A",                    # every attack-pattern
+    ]) + "\n"  # fmt: skip
+    result = runner.invoke(app, ["review", analysed_run], input=keys)
+    assert result.exit_code == 0, result.output
+    assert "lint errors" in result.output and "Edit saved and logged" in result.output
+    assert "41 attack-pattern items: approved" in result.output
+
+    from cti_agent.audit import AuditLog
+
+    rows = AuditLog(settings.out_dir / "audit.jsonl").entries(analysed_run)
+    decisions = [(r["action"], r["decision"]) for r in rows]
+    assert decisions[:4] == [("review", "approve"), ("edit", None), ("review", "approve"),
+                             ("review", "reject")]  # fmt: skip
+    assert sum(r["bulk"] for r in rows) == 41
+    approved = settings.out_dir / analysed_run / "approved"
+    assert len(list((approved / "hunts").glob("*.kql"))) == 2
+    assert (approved / "stix-bundle.json").exists()
+
+
+def test_tampered_audit_log_blocks_review(analysed_run, settings):
+    first_item = runner.invoke(app, ["review", analysed_run, "--all"], input="a\nq\n")
+    assert first_item.exit_code == 0
+    log = settings.out_dir / "audit.jsonl"
+    log.write_text(log.read_text(encoding="utf-8").replace('"approve"', '"reject"'), "utf-8")
+    blocked = runner.invoke(app, ["review", analysed_run])
+    assert blocked.exit_code == 4 and "failed verification" in blocked.output
+    assert runner.invoke(app, ["audit", "--verify"]).exit_code == 4

@@ -12,11 +12,13 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
+import click
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from cti_agent import __version__
+from cti_agent.audit import AuditChainBroken, AuditLog, current_actor
 from cti_agent.config import Settings
 from cti_agent.feeds.fetch import SOURCES as FEED_SOURCES
 from cti_agent.feeds.fetch import parse_since, run_fetch
@@ -38,6 +40,8 @@ from cti_agent.pipeline import (
     run_ingest,
     run_prepatch,
 )
+from cti_agent.review_ui import run_review
+from cti_agent.stages.gate import Gate, GateError
 from cti_agent.trace import read_trace
 
 
@@ -349,10 +353,106 @@ def prepatch(
     _replay_note(replay, record)
 
 
+def _audit_log(settings: Settings) -> AuditLog:
+    return AuditLog(settings.out_dir / "audit.jsonl", settings.db_path)
+
+
 @app.command()
-def review(run_id: str) -> None:
-    """Stage 6: approve, reject or edit each draft."""
-    _not_yet("M3")
+def review(
+    run_id: str,
+    item: Annotated[
+        str | None, typer.Option(help="Decide one item without the interactive loop.")
+    ] = None,
+    approve: Annotated[bool, typer.Option("--approve", help="With --item.")] = False,
+    reject: Annotated[bool, typer.Option("--reject", help="With --item; needs --reason.")] = False,
+    reason: Annotated[str | None, typer.Option(help="Why the item is rejected.")] = None,
+    include_decided: Annotated[
+        bool, typer.Option("--all", help="Show items that already have a decision too.")
+    ] = False,
+    reviewer: Annotated[
+        str | None,
+        typer.Option(help="Name for the audit log. Default: CTI_AGENT_REVIEWER or OS user."),
+    ] = None,
+) -> None:
+    """Stage 6: approve, reject or edit each hunt and STIX object. Every decision is audited."""
+    settings = Settings()
+    try:
+        gate = Gate(settings, run_id, current_actor(reviewer), _audit_log(settings))
+    except AuditChainBroken as exc:
+        console.print(
+            f"[red]The audit log failed verification, so no decisions can be made:[/red] {exc}"
+        )
+        raise typer.Exit(code=4) from None
+    except GateError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+
+    if item:
+        if approve == reject:
+            raise typer.BadParameter("with --item, pass exactly one of --approve or --reject")
+        try:
+            gate.decide(gate.item(item), "approve" if approve else "reject", reason)
+        except GateError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=2) from None
+        console.print(f"{item}: {'approved' if approve else 'rejected'} by {gate.actor}")
+        return
+
+    if not gate.pending(include_decided):
+        console.print("Nothing waiting for review. Pass --all to see decided items again.")
+        return
+    counts = run_review(
+        gate,
+        console,
+        ask=lambda prompt, keys: typer.prompt(
+            prompt, type=click.Choice(keys, case_sensitive=True), show_choices=False
+        ),
+        ask_text=lambda prompt: typer.prompt(prompt),
+        edit=lambda text, extension: click.edit(text, extension=extension),
+        include_decided=include_decided,
+    )
+    console.print(
+        f"\n{counts['approved']} approved, {counts['rejected']} rejected, "
+        f"{counts['skipped']} skipped; {len(gate.pending())} still waiting."
+    )
+    console.print(
+        f"Approved items: {gate.out_dir / 'approved'}   Audit: cti-agent audit --run {run_id}"
+    )
+
+
+@app.command(name="audit")
+def audit_(
+    run: Annotated[str | None, typer.Option(help="Only this run.")] = None,
+    verify: Annotated[
+        bool, typer.Option("--verify", help="Exit non-zero if the hash chain is broken.")
+    ] = False,
+) -> None:
+    """Show the audit log and check its hash chain."""
+    log = _audit_log(Settings())
+    table = Table(title="Audit log" + (f": {run}" if run else ""), title_justify="left")
+    for col in ("Time (UTC)", "Actor", "Action", "Item", "Decision", "Reason", "Hash"):
+        table.add_column(col, overflow="fold")
+    for row in log.entries(run):
+        decision = (row["decision"] or "") + (" (bulk)" if row["bulk"] else "")
+        table.add_row(
+            row["ts"][:19].replace("T", " "),
+            row["actor"],
+            row["action"],
+            row["item_ref"] or row["run_id"],
+            decision,
+            row["reason"] or "",
+            row["hash"][:12],
+        )
+    console.print(table)
+    try:
+        log.verify()
+        console.print(
+            "[green]Hash chain verified: no line was changed, removed or reordered.[/green]"
+        )
+    except AuditChainBroken as exc:
+        console.print(f"[red]Hash chain broken: {exc}[/red]")
+        if verify:
+            raise typer.Exit(code=4) from None
 
 
 @app.command()
