@@ -12,7 +12,9 @@ license-files = ["LICENSE"]
 authors = [{ name = "Samuel Omiwole" }]
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.70",
+    # messages.parse with output_format and output_config, and the server-side refusal
+    # fallback beta; every recorded live run was made with 2.3.
+    "anthropic>=2.3",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "stix2>=3.0.1",
