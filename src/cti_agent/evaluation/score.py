@@ -60,6 +60,10 @@ class ReportScore:
     false_negatives: dict[str, list[str]] = field(default_factory=dict)
     chunks_ok: int = 0
     chunks_total: int = 0
+    # What the indicator re-check removed, and which of those the labels call gold: the
+    # re-check's own mistakes, which count against it.
+    recheck_removed: list[str] = field(default_factory=list)
+    recheck_removed_gold: list[str] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
@@ -109,6 +113,8 @@ def score_report(
     raw_indicators, _, _ = _compare(raw_ind, required_ind, optional_ind)
     raw_techniques, _, _ = _compare(raw_tech, required_tech, optional_tech)
 
+    removed = [(r.item["kind"], str(r.item["value"]).lower())
+               for r in validation.rejected if r.reason == "not_an_indicator"]  # fmt: skip
     rejections: dict[str, int] = validation.rejected_counts()
     checked = len(validation.accepted) + len(validation.rejected)
     failures = sum(n for reason, n in rejections.items() if reason in EVIDENCE_FAILURES)
@@ -126,4 +132,6 @@ def score_report(
         false_negatives={"indicators": [_label(k) for k in ind_fn], "techniques": tech_fn},
         chunks_ok=sum(c.outcome == "ok" for c in chunks),
         chunks_total=len(chunks),
+        recheck_removed=[_label(k) for k in removed],
+        recheck_removed_gold=[_label(k) for k in removed if k in required_ind],
     )

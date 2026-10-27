@@ -83,6 +83,14 @@ def test_gold_eval_scores_validated_and_raw(settings, tmp_path, attack_index):
     assert md.exists() and json.loads(md.with_suffix(".json").read_text("utf-8"))["gold"]
 
 
+def test_a_recheck_mistake_counts_against_it(settings, tmp_path, attack_index):
+    write_gold(tmp_path / "gold", FIXTURE_REPORT)
+    model = FakeModel(roles={"198.51.101.7": "reference"})  # a gold C2 address, thrown out
+    [score] = run_gold_eval(settings, model, tmp_path / "gold", attack=attack_index).scores
+    assert score.recheck_removed == score.recheck_removed_gold == ["ipv4:198.51.101.7"]
+    assert score.indicators.fn == 1 and score.false_negatives["indicators"] == score.recheck_removed
+
+
 def test_misses_and_extras_are_listed(settings, tmp_path, attack_index):
     write_gold(tmp_path / "gold", FIXTURE_REPORT, techniques=["T1566.004", "T1110"],
                optional_techniques=[])  # fmt: skip

@@ -663,6 +663,10 @@ def eval_(
             if missed or extra:
                 console.print(f"[dim]{s.report_id}: missed {missed or 'none'}; "
                               f"not in gold {extra or 'none'}[/dim]")  # fmt: skip
+            if s.recheck_removed_gold:
+                removed = ", ".join(s.recheck_removed_gold)
+                console.print(f"[yellow]{s.report_id}: the re-check removed {removed}, which "
+                              "the labels call gold[/yellow]")  # fmt: skip
     if injection_result:
         console.print(Markdown(injection_result.markdown()))
     if write:

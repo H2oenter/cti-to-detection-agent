@@ -116,24 +116,27 @@ def gold_markdown(result: GoldEval) -> str:
         f"(`{result.prompt_version}`){' · replayed' if result.replayed else ''}",
         "",
         "| Report | Indicators P / R / F1 | Techniques P / R / F1 | Raw → validated precision "
-        "(indicators) | Evidence pass rate | Rejected | Cost |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "(indicators) | Evidence pass rate | Rejected | Re-check removed (of them gold) | Cost |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     rows = [(s.report_id, s.indicators, s.techniques, s.raw_indicators, s.evidence_pass_rate,
-             sum(s.rejections.values()), s.cost_usd) for s in result.scores]  # fmt: skip
+             sum(s.rejections.values()), len(s.recheck_removed), len(s.recheck_removed_gold),
+             s.cost_usd) for s in result.scores]  # fmt: skip
     total = result.overall()
     checked = sum(s.items_checked for s in result.scores)
     passed = sum((s.evidence_pass_rate or 0) * s.items_checked for s in result.scores)
     rows.append(("**overall**", total["indicators"], total["techniques"], total["raw_indicators"],
                  passed / checked if checked else None,
                  sum(sum(s.rejections.values()) for s in result.scores),
+                 sum(len(s.recheck_removed) for s in result.scores),
+                 sum(len(s.recheck_removed_gold) for s in result.scores),
                  sum(s.cost_usd for s in result.scores)))  # fmt: skip
-    for report, ind, tech, raw, evidence, rejected, cost in rows:
+    for report, ind, tech, raw, evidence, rejected, removed, removed_gold, cost in rows:
         lines.append(
             f"| {report} | {_pct(ind.precision)} / {_pct(ind.recall)} / {_pct(ind.f1)} "
             f"| {_pct(tech.precision)} / {_pct(tech.recall)} / {_pct(tech.f1)} "
             f"| {_pct(raw.precision)} → {_pct(ind.precision)} | {_pct(evidence)} "
-            f"| {rejected} | ${cost:.3f} |"
+            f"| {rejected} | {removed} ({removed_gold}) | ${cost:.3f} |"
         )
     return "\n".join(lines) + "\n"
 
