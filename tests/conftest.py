@@ -181,6 +181,7 @@ class FakeAnalyst:
 
     bad_query_for: set[str] = field(default_factory=set)  # these get an externaldata query
     low_scores_for: set[str] = field(default_factory=set)
+    second_low_for: set[str] = field(default_factory=set)  # only the second reviewer scores low
     refuse: set[str] = field(default_factory=set)
     summary: list[str] | None = None
     calls: list[tuple[str, str]] = field(default_factory=list)
@@ -206,7 +207,8 @@ class FakeAnalyst:
             return LLMResult(draft, "end_turn", 2000, 600, 5, model)
         if schema is ReviewScores:
             tid = re.search(r"Technique: (\S+)", user).group(1)
-            low = tid in self.low_scores_for
+            second = model == "claude-opus-5-5"
+            low = tid in self.low_scores_for or (second and tid in self.second_low_for)
             scores = ReviewScores(
                 faithful=4, kql_correct=2 if low else 4, actionable=4, calibrated=3,
                 reasons=["grounded", "valid", "runnable", "fair"],

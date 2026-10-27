@@ -1,0 +1,24 @@
+{
+ "request_key": "dade86ed7206f2f2a8f7bbab0b7d2036e5738eca395df06d1695589be7eba99f",
+ "model": "claude-opus-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1613,
+  "output_tokens": 2076,
+  "cache_read_tokens": 12717,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "faithful": 4,
+  "kql_correct": 4,
+  "actionable": 3,
+  "calibrated": 4,
+  "reasons": [
+   "The Entra 'Add user' and 'Invite external user' operations and the local/AD account-creation commands match the evidence that the actor creates new identities, but 'Add service principal' and 'Add application' stretch beyond it toward app-credential persistence the report doesn't describe.",
+   "The syntax is valid and the AuditLogs fields (Result, the InitiatedBy.user and app paths, TargetResources[0]) are used correctly, but the endpoint branch keys only on FileName, so a renamed net.exe or powershell.exe escapes it (ProcessVersionInfoOriginalFileName would catch these), and an -EncodedCommand New-ADUser or a script-file invocation leaves no cmdlet text in the command line to match.",
+   "An analyst can run this, but the merged Target column means a UPN for Entra rows and a DeviceName for endpoint rows, the created account name is only inside Detail, and the projection drops DeviceId, the initiating process and parent, CorrelationId, the target object ID and the app actor's ID, all of which triage needs.",
+   "A confidence of 35 with 'needs context' fits a broad hunt, but the false-positive list misses the largest noise sources: 'Add service principal' firing on first-party app consent and managed-identity creation, and Entra Connect sync accounts generating bulk 'Add user' events."
+  ]
+ }
+}

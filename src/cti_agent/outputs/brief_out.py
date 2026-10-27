@@ -161,6 +161,7 @@ def render_brief(
             f"- Confidence: {d.confidence.score}/100. {d.confidence.rationale}",
             f"- Expected false positives: {'; '.join(d.expected_false_positives)}",
             f"- Reviewer: {scores}{flag}",
+            *_second_review_line(h),
             f"- Lint: {lint}",
             *([f"- Retire when: {h.retire_when}"] if h.retire_when else []),
             "",
@@ -236,6 +237,7 @@ def render_prepatch_brief(result: PrepatchResult, provenance: Provenance) -> str
             f"- Kind: {h.kind} · technique {h.technique_id} · by {h.model}",
             f"- Confidence: {d.confidence.score}/100. {d.confidence.rationale}",
             f"- Review: {review}{flag}",
+            *_second_review_line(h),
             f"- Lint: {'; '.join(f'{f.severity} {f.code}' for f in h.lint) or 'clean'}",
             *[f"- Assumption: {a}" for a in d.assumptions],
             "",
@@ -252,3 +254,13 @@ def render_prepatch_brief(result: PrepatchResult, provenance: Provenance) -> str
         "",
     ]
     return "\n".join(out)
+
+
+def _second_review_line(h) -> list[str]:
+    if h.second_review:
+        scores = " · ".join(f"{k} {getattr(h.second_review, k)}" for k in
+                            ("faithful", "kql_correct", "actionable", "calibrated"))  # fmt: skip
+        return [f"- Second reviewer ({h.second_review_model}): {scores}"]
+    if h.second_review_outcome:
+        return [f"- Second reviewer: none ({h.second_review_outcome})"]
+    return []

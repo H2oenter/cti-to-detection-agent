@@ -61,7 +61,7 @@ from cti_agent.stages.prepatch import (
     verify_observables,
 )
 from cti_agent.stages.recheck import recheck
-from cti_agent.stages.reviewer import review_hunt
+from cti_agent.stages.reviewer import review_hunt, second_review_hunt
 from cti_agent.stages.store import has_run_for, save_drafts, save_run, save_run_row
 from cti_agent.stages.validator import Allowlist, validate, write_rejections
 from cti_agent.trace import Tracer
@@ -241,6 +241,7 @@ def run_analyse(
     analyst_prompt, reviewer_prompt = load_prompt("analyst"), load_prompt("reviewer")
     analyst_system = analyst_prompt.text.replace("{schema}", tables)
     reviewer_system = reviewer_prompt.text.replace("{schema}", tables)
+    reviewer2_system = load_prompt("reviewer2").text.replace("{schema}", tables)
     tracer = Tracer(run_id, out_dir / "trace.jsonl", settings)
 
     coverage = check_coverage(accepted, attack, load_rules(settings.rules_file))
@@ -267,18 +268,17 @@ def run_analyse(
         if hunt is None:
             not_drafted.append(f"{entry.attack_id} ({outcome})")
             continue
-        hunts.append(
-            review_hunt(
-                hunt,
-                evidence,
-                client=client,
-                tracer=tracer,
-                settings=settings,
-                system=reviewer_system,
-                actor=actor,
-                surroundings=surroundings,
-            )
-        )
+        reviewed = review_hunt(
+            hunt, evidence,
+            client=client, tracer=tracer, settings=settings, system=reviewer_system,
+            actor=actor, surroundings=surroundings,
+        )  # fmt: skip
+        reviewed = second_review_hunt(
+            reviewed, evidence,
+            client=client, tracer=tracer, settings=settings, system=reviewer2_system,
+            actor=actor, surroundings=surroundings,
+        )  # fmt: skip
+        hunts.append(reviewed)
 
     analysis = AnalysisResult(
         run_id=run_id,
@@ -406,6 +406,12 @@ def run_prepatch(
             hunt, evidence,
             client=client, tracer=tracer, settings=settings,
             system=reviewer_prompt.text.replace("{schema}", tables),
+            surroundings=surroundings, facts=facts,
+        )  # fmt: skip
+        hunt = second_review_hunt(
+            hunt, evidence,
+            client=client, tracer=tracer, settings=settings,
+            system=load_prompt("reviewer2").text.replace("{schema}", tables),
             surroundings=surroundings, facts=facts,
         )  # fmt: skip
         hunts.append(

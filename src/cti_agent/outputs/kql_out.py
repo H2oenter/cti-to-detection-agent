@@ -32,6 +32,14 @@ def render_kql(hunt: Hunt) -> str:
         )
     else:
         header.append(f"// Reviewer: none ({hunt.review_outcome})")
+    if hunt.second_review:
+        s = hunt.second_review
+        header.append(
+            f"// Second reviewer ({hunt.second_review_model}): faithful {s.faithful}, "
+            f"kql_correct {s.kql_correct}, actionable {s.actionable}, calibrated {s.calibrated}"
+        )
+    elif hunt.second_review_outcome:
+        header.append(f"// Second reviewer: none ({hunt.second_review_outcome})")
     header += [f"// Lint {f.severity}: {f.code}: {_one_line(f.message)}" for f in hunt.lint]
     if hunt.needs_attention:
         header.append(f"// NEEDS ATTENTION: {'; '.join(hunt.attention_reasons)}")

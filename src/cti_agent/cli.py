@@ -302,7 +302,7 @@ def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:
         f" [red]{states['gap']} gaps[/red], {states['not_applicable']} mobile (not huntable)"
     )
     table = Table(title="Draft hunts (pending human review)", title_justify="left")
-    for col in ("Technique", "Title", "Lint", "Review F/K/A/C", "Attention"):
+    for col in ("Technique", "Title", "Lint", "Review F/K/A/C (1st, 2nd)", "Attention"):
         table.add_column(col, overflow="fold")
     for h in analysis.hunts:
         errors = [f.code for f in h.lint if f.severity == "error"]
@@ -310,12 +310,8 @@ def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:
         lint = (
             ", ".join(errors) if errors else (f"ok ({', '.join(warnings)})" if warnings else "ok")
         )
-        r = h.review
-        scores = (
-            f"{r.faithful}/{r.kql_correct}/{r.actionable}/{r.calibrated}" if r else h.review_outcome
-        )
         flag = "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else ""
-        table.add_row(h.technique_id, h.draft.title, lint, scores, flag)
+        table.add_row(h.technique_id, h.draft.title, lint, _review_scores(h), flag)
     console.print(table)
     if analysis.not_drafted:
         console.print(f"Gaps not drafted this run: {', '.join(analysis.not_drafted)}")
@@ -384,17 +380,16 @@ def _print_prepatch(result: PrepatchResult, settings: Settings) -> None:
         + (f", rejected: {len(rejected)}" if rejected else "")
     )
     table = Table(title="Pre-patch hunts (pending human review)", title_justify="left")
-    for col in ("Kind", "Title", "By", "Lint", "Review F/K/A/C", "Attention"):
+    for col in ("Kind", "Title", "By", "Lint", "Review F/K/A/C (1st, 2nd)", "Attention"):
         table.add_column(col, overflow="fold")
     for h in result.hunts:
         errors = [f.code for f in h.lint if f.severity == "error"]
-        r = h.review
         table.add_row(
             h.kind,
             h.draft.title,
             h.model,
             ", ".join(errors) or "ok",
-            f"{r.faithful}/{r.kql_correct}/{r.actionable}/{r.calibrated}" if r else "n/a (code)",
+            _review_scores(h) if h.review or h.second_review else "n/a (code)",
             "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else "",
         )
     console.print(table)
@@ -404,6 +399,16 @@ def _print_prepatch(result: PrepatchResult, settings: Settings) -> None:
     console.print(f"[bold]{result.retire_when}[/bold]")
     out_dir = settings.out_dir / result.run_id
     console.print(f"Brief: {out_dir / 'brief.md'}   Hunts: {out_dir / 'hunts'}")
+
+
+def _review_scores(hunt) -> str:
+    def one(r, outcome):
+        return f"{r.faithful}/{r.kql_correct}/{r.actionable}/{r.calibrated}" if r else outcome
+
+    first = one(hunt.review, hunt.review_outcome)
+    if hunt.second_review_outcome is None:
+        return first
+    return f"{first}, {one(hunt.second_review, hunt.second_review_outcome)}"
 
 
 def _audit_log(settings: Settings) -> AuditLog:

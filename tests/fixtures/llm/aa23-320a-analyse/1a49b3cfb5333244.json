@@ -1,0 +1,24 @@
+{
+ "request_key": "1a49b3cfb53332443462e2fe526e6132e06e702285aad03071e88016a0bafe7b",
+ "model": "claude-opus-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1578,
+  "output_tokens": 1719,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 12717
+ },
+ "output": {
+  "faithful": 4,
+  "kql_correct": 3,
+  "actionable": 3,
+  "calibrated": 3,
+  "reasons": [
+   "Admin-initiated password resets and security-info changes are a fair proxy for the quoted 'reset passwords and/or transfer MFA tokens' help-desk step. However, the title promises a 'sign-in from new IP' that the query never tests, and the Actor != Target filter drops the follow-on self-registration of attacker MFA after takeover.",
+   "The query will mostly run, but three things weaken it. `ResultType == 0` compares SigninLogs' string ResultType to a long, so use \"0\". The join on TargetUpn == UserPrincipalName is case-sensitive with no tolower(), so real matches can be missed. The audit Result column is projected but never filtered to success, so failed admin attempts get joined too.",
+   "An analyst can run this today, but the summarize discards UserAgent and RiskLevelDuringSignIn, which were projected for triage. There is also no ActorIp-vs-SigninIp or baseline-IP comparison. Nearly every legitimate reset is followed by a sign-in within 4h, so the output is effectively a list of all help-desk resets.",
+   "The false positives listed (lost phone, onboarding, normal post-reset sign-in) are accurate, and a confidence of 40 is in range. But the title over-claims a new-IP condition that only exists in the tuning notes, and the draft doesn't acknowledge that the query will return nearly every admin reset across a large estate."
+  ]
+ }
+}

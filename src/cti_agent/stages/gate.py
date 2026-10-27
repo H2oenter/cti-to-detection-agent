@@ -22,7 +22,7 @@ from cti_agent.config import Settings
 from cti_agent.models import Hunt
 from cti_agent.outputs.kql_out import render_kql
 from cti_agent.outputs.stix_out import TOOL_IDENTITY
-from cti_agent.stages.reviewer import attention_reasons
+from cti_agent.stages.reviewer import attention_reasons, second_opinion_reasons
 from cti_agent.stages.store import SCHEMA
 from cti_agent.util.kql_lint import KqlSchema, lint_kql
 from cti_agent.util.normalise import item_hash
@@ -206,6 +206,12 @@ class Gate:
             draft.query, draft.tables, self.schema
         )
         reasons = attention_reasons(hunt.review, lint, hunt.review_outcome)
+        if hunt.second_review_outcome is not None:  # drafts from before reviewer 2 have none
+            added = second_opinion_reasons(
+                hunt.review, hunt.second_review, hunt.second_review_outcome,
+                hunt.second_review_model, self.settings.review_model,
+            )  # fmt: skip
+            reasons += [r for r in added if r not in reasons]
         if hunt.review:
             reasons.append(f"edited by {self.actor} after the model review")
         edited = hunt.model_copy(

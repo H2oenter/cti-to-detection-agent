@@ -10,7 +10,7 @@ from cti_agent.models import LintFinding, ReviewScores
 from cti_agent.outputs.brief_out import check_summary
 from cti_agent.pipeline import AnalyseError, IngestBlocked, run_analyse
 from cti_agent.stages.analyst import check_evidence
-from cti_agent.stages.reviewer import attention_reasons
+from cti_agent.stages.reviewer import attention_reasons, second_opinion_reasons
 from cti_agent.trace import read_trace
 
 
@@ -122,6 +122,49 @@ def test_attention_reasons():
     warning = LintFinding(severity="warning", code="no_time_filter", message="m")
     assert attention_reasons(good, [error, warning], "ok") == ["lint errors: unknown_table"]
     assert attention_reasons(None, [], "refused") == ["no review (refused)"]
+
+
+def scores(f, k, a, c):
+    return ReviewScores(faithful=f, kql_correct=k, actionable=a, calibrated=c, reasons=[])
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "answered_by", "expected"),
+    [
+        (scores(4, 4, 4, 4), scores(4, 5, 4, 3), "claude-opus-5-5", []),
+        (scores(4, 4, 4, 4), scores(4, 2, 4, 4), "claude-opus-5-5",
+         ["second reviewer scored kql_correct 2 (first: 4)"]),
+        (scores(5, 4, 4, 4), scores(3, 4, 4, 4), "claude-opus-5-5",
+         ["reviewers disagree on faithful: 5 vs 3"]),
+        # Already flagged by the first reviewer: not flagged twice.
+        (scores(4, 2, 4, 4), scores(4, 1, 4, 4), "claude-opus-5-5", []),
+        # A refusal fallback answered with the first reviewer's model: no longer independent.
+        (scores(4, 4, 4, 4), scores(4, 4, 4, 4), "claude-sonnet-5-5",
+         ["second review answered by claude-sonnet-5-5, the same model as the first"]),
+        (scores(4, 4, 4, 4), None, None, ["no second review (refused)"]),
+    ],
+)  # fmt: skip
+def test_second_opinion_reasons(first, second, answered_by, expected):
+    assert second_opinion_reasons(first, second, "refused", answered_by, "claude-sonnet-5-5") == (
+        expected
+    )
+
+
+def test_the_second_reviewer_sees_what_the_first_saw_and_not_its_scores(
+    aa23_run, settings, aa23_attack
+):
+    model = FakeAnalyst(second_low_for={"T1204"})
+    result = analyse(aa23_run, settings, aa23_attack, model)
+    reviews = [user for schema, user in model.calls if schema == "ReviewScores"]
+    assert len(reviews) == 2 * len(result.hunts)
+    for first, second in zip(reviews[::2], reviews[1::2], strict=True):
+        assert first == second and "faithful" not in second
+    flagged = {h.technique_id: h.attention_reasons for h in result.hunts if h.needs_attention}
+    assert flagged == {"T1204": ["second reviewer scored kql_correct 2 (first: 4)"]}
+    t1204 = next(h for h in result.hunts if h.technique_id == "T1204")
+    assert t1204.second_review_model == "claude-opus-5-5"
+    kql = (settings.out_dir / aa23_run / "hunts" / f"{t1204.draft_id}.kql").read_text("utf-8")
+    assert "// Second reviewer (claude-opus-5-5): faithful 4, kql_correct 2" in kql
 
 
 @pytest.mark.parametrize(

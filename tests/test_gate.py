@@ -85,6 +85,17 @@ def test_editing_an_approved_item_needs_a_new_decision(gate):
     assert not list((gate.out_dir / "approved" / "hunts").iterdir())
 
 
+def test_an_edit_keeps_the_second_reviewers_reasons(settings, aa23_run, aa23_attack):
+    run_analyse(aa23_run, settings, FakeAnalyst(second_low_for={"T1199"}), attack=aa23_attack)
+    gate = Gate(settings, aa23_run, "sam", audit_for(settings))
+    item = next(i for i in hunts(gate) if i.hunt.technique_id == "T1199")
+    edited = gate.edit_hunt(item, CLEAN_QUERY)
+    assert edited.hunt.attention_reasons == [
+        "second reviewer scored kql_correct 2 (first: 4)",
+        "edited by sam after the model review",
+    ]
+
+
 def test_rest_of_type_is_logged_per_item(gate):
     patterns = [i for i in gate.items if i.kind == "attack-pattern"]
     count = gate.decide_rest_of_type(patterns[0], "approve", None)

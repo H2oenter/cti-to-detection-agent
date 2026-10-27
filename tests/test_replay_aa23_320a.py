@@ -1,6 +1,7 @@
 """Replays the real model output recorded from CISA AA23-320A.
 
-Ingest: claude-haiku-5-5, 26 Oct 2026. Analysis and review: claude-sonnet-5-5, 27 Oct 2026.
+Ingest: claude-haiku-5-5, 26 Oct 2026. Analysis and first review: claude-sonnet-5-5, 27 Oct
+2026. Second review: claude-opus-5-5, 27 Oct 2026.
 The model's answers are fixed, so this guards everything around the model calls: chunking and
 prompt building (the request keys depend on them), validation, coverage, lint, the attention
 logic and the outputs. See fixtures/reports/README.md.
@@ -115,9 +116,15 @@ def test_analysis_drafts_reviewed_and_linted(analysis):
         "T1199", "T1204", "T1648", "T1556.006", "T1136"
     ]  # fmt: skip
     assert all(h.review is not None for h in analysis.hunts)
+    assert all(h.second_review_model == "claude-opus-5-5" for h in analysis.hunts)
     assert all(not h.lint_failed for h in analysis.hunts)  # incl. the RegTime regression
     flagged = {h.technique_id: h.attention_reasons for h in analysis.hunts if h.needs_attention}
-    assert flagged == {"T1648": ["kql_correct scored 2"]}
+    # The second reviewer caught one the first passed: T1556.006's same-IP clause matches
+    # nearly every self-service MFA registration, so its confidence is overstated.
+    assert flagged == {
+        "T1648": ["kql_correct scored 2"],
+        "T1556.006": ["second reviewer scored calibrated 2 (first: 3)"],
+    }
 
 
 def test_analysis_leadership_summary_passed_the_fact_check(analysis):

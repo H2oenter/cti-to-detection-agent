@@ -36,22 +36,43 @@ def attention_reasons(
     return reasons
 
 
-def review_hunt(
+def second_opinion_reasons(
+    first: ReviewScores | None,
+    second: ReviewScores | None,
+    outcome: str,
+    answered_by: str | None,
+    first_model: str,
+) -> list[str]:
+    """What the second review adds to the attention list. The first reviewer's own reasons
+    stand as they are; a dimension it already flagged isn't flagged twice."""
+    if second is None:
+        return [f"no second review ({outcome})"]
+    reasons = []
+    if answered_by == first_model:  # a refusal fallback can land on the first reviewer's model
+        reasons.append(f"second review answered by {answered_by}, the same model as the first")
+    for dim in DIMENSIONS:
+        a = getattr(first, dim) if first else None
+        b = getattr(second, dim)
+        if a is not None and a < ATTENTION_BELOW:
+            continue
+        if b < ATTENTION_BELOW:
+            reasons.append(f"second reviewer scored {dim} {b}" + (f" (first: {a})" if a else ""))
+        elif a is not None and abs(a - b) >= 2:
+            reasons.append(f"reviewers disagree on {dim}: {a} vs {b}")
+    return reasons
+
+
+def review_user(
     hunt: Hunt,
     evidence: list[str],
-    *,
-    client: LLMClient,
-    tracer: Tracer,
-    settings: Settings,
-    system: str,
     actor: str | None = None,
     surroundings: str | None = None,
     facts: str | None = None,
-) -> Hunt:
-    """`facts` are pipeline facts from structured fields that the analyst was also given,
-    so the reviewer doesn't mistake them for invention."""
+) -> str:
+    """What each reviewer is shown. The second sees exactly what the first saw, and not the
+    first's scores."""
     lint_lines = [f"- {f.severity}: {f.code}: {f.message}" for f in hunt.lint] or ["- none"]
-    user = "\n".join(
+    return "\n".join(
         [
             f"Technique: {hunt.technique_id}",
             f"Threat actor named in the report: {actor or 'none'}",
@@ -69,6 +90,60 @@ def review_hunt(
             *lint_lines,
         ]
     )
+
+
+def second_review_hunt(
+    hunt: Hunt,
+    evidence: list[str],
+    *,
+    client: LLMClient,
+    tracer: Tracer,
+    settings: Settings,
+    system: str,
+    actor: str | None = None,
+    surroundings: str | None = None,
+    facts: str | None = None,
+) -> Hunt:
+    """A second, independent review on a different model, merged into the attention list
+    by code. It can add reasons to look at a hunt; it can't remove the first reviewer's."""
+    result = traced_call(
+        client=client, tracer=tracer, stage="reviewer2", step=hunt.draft_id,
+        model=settings.review2_model, system=system,
+        user=review_user(hunt, evidence, actor, surroundings, facts),
+        schema=ReviewScores, max_tokens=settings.analyse_max_output_tokens,
+        effort=settings.review2_effort, refusal_fallback=True,
+    )  # fmt: skip
+    outcome = "skipped_budget" if result is None else outcome_of(result)
+    second = result.parsed if result is not None else None
+    answered_by = result.model if result is not None else None
+    added = second_opinion_reasons(hunt.review, second, outcome, answered_by, settings.review_model)
+    reasons = hunt.attention_reasons + [r for r in added if r not in hunt.attention_reasons]
+    return hunt.model_copy(
+        update={
+            "second_review": second,
+            "second_review_model": answered_by,
+            "second_review_outcome": outcome,
+            "needs_attention": bool(reasons),
+            "attention_reasons": reasons,
+        }
+    )
+
+
+def review_hunt(
+    hunt: Hunt,
+    evidence: list[str],
+    *,
+    client: LLMClient,
+    tracer: Tracer,
+    settings: Settings,
+    system: str,
+    actor: str | None = None,
+    surroundings: str | None = None,
+    facts: str | None = None,
+) -> Hunt:
+    """`facts` are pipeline facts from structured fields that the analyst was also given,
+    so the reviewer doesn't mistake them for invention."""
+    user = review_user(hunt, evidence, actor, surroundings, facts)
     result = traced_call(
         client=client,
         tracer=tracer,

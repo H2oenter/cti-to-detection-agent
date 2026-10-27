@@ -296,6 +296,10 @@ class Hunt(BaseModel):
     lint: list[LintFinding] = Field(default_factory=list)
     review: ReviewScores | None = None
     review_outcome: str = "skipped"
+    # A second, independent review on a different model; None where it hasn't run.
+    second_review: ReviewScores | None = None
+    second_review_model: str | None = None
+    second_review_outcome: str | None = None
     needs_attention: bool = False
     attention_reasons: list[str] = Field(default_factory=list)
     item_hash: str

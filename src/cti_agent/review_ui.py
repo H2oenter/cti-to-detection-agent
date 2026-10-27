@@ -123,12 +123,22 @@ def _hunt_body(item: ReviewItem) -> list:
     if hunt.review:
         r = hunt.review
         lines.append(
-            Text(f"Reviewer ({hunt.model}): faithful {r.faithful} · kql_correct {r.kql_correct}"
+            Text(f"First reviewer: faithful {r.faithful} · kql_correct {r.kql_correct}"
                  f" · actionable {r.actionable} · calibrated {r.calibrated}")
         )  # fmt: skip
         lines += [Text(f"  - {reason}", style="dim") for reason in r.reasons]
     else:
         lines.append(Text(f"Reviewer: {hunt.review_outcome}", style="dim"))
+    if hunt.second_review:
+        s = hunt.second_review
+        lines.append(
+            Text(f"Second reviewer ({hunt.second_review_model}): faithful {s.faithful} · "
+                 f"kql_correct {s.kql_correct} · actionable {s.actionable} · "
+                 f"calibrated {s.calibrated}")
+        )  # fmt: skip
+        lines += [Text(f"  - {reason}", style="dim") for reason in s.reasons]
+    elif hunt.second_review_outcome:
+        lines.append(Text(f"Second reviewer: {hunt.second_review_outcome}", style="dim"))
     lines += [
         Text(f"Lint {f.severity}: {f.code}: {f.message}",
              style="red" if f.severity == "error" else "yellow")

@@ -1,0 +1,24 @@
+{
+ "request_key": "5c5ff24c25e161294a42521bb388c95daf014e8a8c3167352e02437e581eacd4",
+ "model": "claude-opus-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 1657,
+  "output_tokens": 1426,
+  "cache_read_tokens": 12717,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "faithful": 4,
+  "kql_correct": 3,
+  "actionable": 3,
+  "calibrated": 2,
+  "reasons": [
+   "The hunt targets the cited behaviour, attackers registering their own MFA methods (T1556.006), using Entra security-info registration events, and adds nothing unrelated; it does not cover the helpdesk-reset path the report implies, beyond including the Admin operation names.",
+   "The syntax and columns are valid, and coalesce correctly skips an empty TargetUpn. The logic is broken, though: a self-service registrant must sign in from the same IP to register, so 'SigninIp == ActorIp' is true for almost every legitimate enrollment. Because that test is OR'd with the risk and single-factor checks, the 'risky or atypical' filter is effectively a no-op. The join also misses AADNonInteractiveUserSignInLogs.",
+   "It runs today, but the inner join emits one row per successful sign-in in the 4h window with no summarize or dedupe, which multiplies output across a large tenant. The projection drops CorrelationId and the registered method detail (ResultReason / TargetResources modifiedProperties), and an analyst needs both to tell an attacker-added authenticator from a routine phone swap.",
+   "The rationale calls this a 'strong Scattered Spider pattern', yet the same-IP clause makes the query return nearly all self-service MFA registrations. Single-factor sign-ins before a first enrollment are normal too, so the listed false positives understate how noisy it is. Even 45 is generous for what is essentially an inventory of all MFA registrations."
+  ]
+ }
+}
