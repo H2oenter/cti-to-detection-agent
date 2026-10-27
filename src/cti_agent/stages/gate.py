@@ -30,9 +30,23 @@ from cti_agent.util.normalise import item_hash
 # Review order; relationships, reports, identities and markings follow from these.
 STIX_KINDS = ("indicator", "threat-actor", "vulnerability", "attack-pattern")
 ORDER = {"hunt": 0, **{kind: i + 1 for i, kind in enumerate(STIX_KINDS)}}
-# Kinds where one decision may cover the rest of the same type. Never hunts or indicators:
-# those are what reaches detections, so each gets its own look.
+# Kinds where one decision may cover the rest of the same type. Never hunts: each gets its
+# own look. Indicators only through approve_clean_indicators: those that passed both checks,
+# approved as the one list the person was shown.
 BULK_KINDS = {"threat-actor", "vulnerability", "attack-pattern"}
+
+
+def clean_indicator(item: ReviewItem) -> bool:
+    """The validator accepted it, the re-check called it an attacker indicator, and it
+    carries no warning: nothing a person needs to look at one by one."""
+    stix = item.stix or {}
+    return (
+        item.kind == "indicator"
+        and stix.get("x_cti_agent_recheck_role") == "attacker_indicator"
+        and not stix.get("x_cti_agent_warnings")
+    )
+
+
 PROTECTED_STIX = ("id", "type", "spec_version", "created", "created_by_ref")
 # Lint codes about the draft's evidence rather than its KQL; an edit keeps them.
 EVIDENCE_CODES = {"no_evidence", "evidence_not_given", "technique_mismatch"}
@@ -138,7 +152,8 @@ class Gate:
         if decision == "approve" and item.hunt and item.hunt.lint_failed:
             errors = ", ".join(f.code for f in item.hunt.lint if f.severity == "error")
             raise GateError(f"{item.ref} has lint errors ({errors}); edit it before approving")
-        if bulk and item.kind not in BULK_KINDS:
+        clean_approval = decision == "approve" and clean_indicator(item)
+        if bulk and item.kind not in BULK_KINDS and not clean_approval:
             raise GateError(f"{item.kind} items are reviewed one at a time")
         self.audit.append(
             run_id=self.run_id, actor=self.actor, action="review", item_ref=item.ref,
@@ -146,6 +161,20 @@ class Gate:
         )  # fmt: skip
         self._set_status(item, "approved" if decision == "approve" else "rejected")
         self.rebuild_approved()
+
+    def clean_indicators(self) -> list[ReviewItem]:
+        return [i for i in self.pending() if clean_indicator(i)]
+
+    def approve_clean_indicators(self, listed: list[str]) -> int:
+        """Approve the indicators that passed both checks, as one list. `listed` is the list
+        the person was shown: if the set has changed since, nothing is decided."""
+        targets = self.clean_indicators()
+        if sorted(i.ref for i in targets) != sorted(listed):
+            raise GateError("the indicators that passed both checks changed since they were "
+                            "listed; nothing was approved, so review them again")  # fmt: skip
+        for target in targets:
+            self.decide(target, "approve", bulk=True)
+        return len(targets)
 
     def decide_rest_of_type(self, item: ReviewItem, decision: str, reason: str | None) -> int:
         """Apply one decision to this item and every remaining pending item of its type."""

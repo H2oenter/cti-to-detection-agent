@@ -1,0 +1,26 @@
+{
+ "request_key": "324308adfff22d8d842e324384ca237b26e922a03ce850011f4611be945a2590",
+ "model": "claude-opus-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 654,
+  "output_tokens": 280,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 1170
+ },
+ "output": {
+  "verdicts": [
+   {
+    "id": "0b0c7e1b0972",
+    "role": "attacker_indicator",
+    "reason": "Listed under 'Indicators of compromise' as '(phishing landing page)' used by Fixture Kitten."
+   },
+   {
+    "id": "df33937eed0c",
+    "role": "attacker_indicator",
+    "reason": "Listed under 'Indicators of compromise' as '(command and control)' for the group's activity."
+   }
+  ]
+ }
+}

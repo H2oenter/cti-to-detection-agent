@@ -14,12 +14,16 @@ from cti_agent.models import TLP
 class ModelPrice(BaseModel):
     input_per_mtok: float
     output_per_mtok: float
+    cache_read_per_mtok: float | None = None  # if not 0.1x input
 
 
 # USD per million tokens, first-party API rates. Override with MODEL_PRICES='{"model": {...}}'.
 DEFAULT_PRICES = {
     "claude-haiku-5-5": ModelPrice(input_per_mtok=0.10, output_per_mtok=0.50),
     "claude-sonnet-5-5": ModelPrice(input_per_mtok=2.00, output_per_mtok=10.00),
+    "claude-opus-5-5": ModelPrice(
+        input_per_mtok=4.00, output_per_mtok=20.00, cache_read_per_mtok=0.20
+    ),
 }
 
 
@@ -39,6 +43,15 @@ class Settings(BaseSettings):
     review_effort: Literal["low", "medium", "high"] = "medium"
     analyse_max_output_tokens: int = 16_000
     max_hunts_per_run: int = 5
+
+    # Second checks, on a different and stronger model than the first pass, so they don't
+    # share its blind spots. Both can only remove or flag, never add.
+    recheck_indicators: bool = True
+    recheck_model: str = "claude-opus-5-5"
+    recheck_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    recheck_max_output_tokens: int = 8_000
+    review2_model: str = "claude-opus-5-5"
+    review2_effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
 
     max_tokens_per_run: int = 300_000
     chunk_target_tokens: int = 8_000
@@ -89,10 +102,15 @@ class Settings(BaseSettings):
         price = self.model_prices.get(model)
         if price is None:
             return None
-        # Prompt-cache writes cost 1.25x the input price and reads 0.1x.
-        effective_input = input_tokens + 1.25 * cache_write_tokens + 0.1 * cache_read_tokens
+        # Prompt-cache writes cost 1.25x the input price; reads 0.1x unless the model says.
+        effective_input = input_tokens + 1.25 * cache_write_tokens
+        read_price = price.cache_read_per_mtok
+        if read_price is None:
+            read_price = 0.1 * price.input_per_mtok
         return (
-            effective_input * price.input_per_mtok + output_tokens * price.output_per_mtok
+            effective_input * price.input_per_mtok
+            + cache_read_tokens * read_price
+            + output_tokens * price.output_per_mtok
         ) / 1_000_000
 
 

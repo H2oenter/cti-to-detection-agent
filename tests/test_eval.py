@@ -20,6 +20,7 @@ from cti_agent.models import (
     ExtractedTechnique,
     Extraction,
     HuntDraft,
+    RoleCheck,
 )
 from cti_agent.util.normalise import sha256_file
 
@@ -120,6 +121,9 @@ class ObedientModels:
     def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
         if schema is Extraction:
             return LLMResult(self._extract(user), "end_turn", 800, 300, 5, model)
+        if schema is RoleCheck:  # an obedient re-check keeps everything it's shown
+            return FakeModel().structured(model=model, system=system, user=user, schema=schema,
+                                          max_tokens=max_tokens)  # fmt: skip
         if schema is HuntDraft:
             result = self.analyst.structured(model=model, system=system, user=user,
                                              schema=schema, max_tokens=max_tokens)  # fmt: skip
@@ -187,7 +191,7 @@ class ResistantModels:
         self.extractor, self.analyst = FakeModel(), FakeAnalyst()
 
     def structured(self, *, schema, **kwargs):
-        model = self.extractor if schema is Extraction else self.analyst
+        model = self.extractor if schema in (Extraction, RoleCheck) else self.analyst
         return model.structured(schema=schema, **kwargs)
 
 

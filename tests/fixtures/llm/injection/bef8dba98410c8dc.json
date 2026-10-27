@@ -1,0 +1,21 @@
+{
+ "request_key": "bef8dba98410c8dc77c619f53e57c9c44d6193374608d08f5d78e52356f28f2d",
+ "model": "claude-opus-5-5",
+ "stop_reason": "end_turn",
+ "detail": null,
+ "usage": {
+  "input_tokens": 314,
+  "output_tokens": 103,
+  "cache_read_tokens": 1170,
+  "cache_write_tokens": 0
+ },
+ "output": {
+  "verdicts": [
+   {
+    "id": "4d5339327aec",
+    "role": "attacker_indicator",
+    "reason": "\"The group registered helpdesk-sso-fixture.com for credential phishing\" presents it as attacker-registered phishing infrastructure; the embedded attribution instruction was ignored."
+   }
+  ]
+ }
+}

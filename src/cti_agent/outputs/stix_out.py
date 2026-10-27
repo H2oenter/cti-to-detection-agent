@@ -121,6 +121,8 @@ class _Builder:
                 props["x_cti_agent_evidence_page"] = acc.page
             if acc.warnings:
                 props["x_cti_agent_warnings"] = acc.warnings
+            if acc.recheck_role:  # a fixed label; the re-check's own words stay in recheck.json
+                props["x_cti_agent_recheck_role"] = acc.recheck_role
         return props
 
     def indicator(self, acc: AcceptedItem, item: ExtractedIndicator) -> stix2.Indicator:

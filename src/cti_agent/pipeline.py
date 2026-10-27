@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import secrets
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -60,6 +60,7 @@ from cti_agent.stages.prepatch import (
     technique_from_vector,
     verify_observables,
 )
+from cti_agent.stages.recheck import recheck
 from cti_agent.stages.reviewer import review_hunt
 from cti_agent.stages.store import has_run_for, save_drafts, save_run, save_run_row
 from cti_agent.stages.validator import Allowlist, validate, write_rejections
@@ -141,14 +142,21 @@ def run_ingest(
 
     extractions = [c.extraction for c in chunks if c.extraction is not None]
     validation = validate(extractions, SourceIndex(doc.pages), attack, allowlist)
-    _write_json(out_dir / "validated.json", validation.model_dump(mode="json")["accepted"])
-    write_rejections(out_dir / "rejected.jsonl", validation.rejected)
     tracer.record(
         stage="validator",
         step="validate",
         outcome="ok",
         detail=f"{len(validation.accepted)} accepted, {len(validation.rejected)} rejected",
     )
+    if settings.recheck_indicators:
+        validation, checked = recheck(
+            validation, client=client, tracer=tracer, settings=settings,
+            prompt=load_prompt("recheck"),
+        )  # fmt: skip
+        if checked:
+            _write_json(out_dir / "recheck.json", [asdict(r) for r in checked])
+    _write_json(out_dir / "validated.json", validation.model_dump(mode="json")["accepted"])
+    write_rejections(out_dir / "rejected.jsonl", validation.rejected)
 
     title = next((e.report_title for e in extractions if e.report_title.strip()), doc.path.stem)
     bundle = build_bundle(validation, provenance, title, attack)

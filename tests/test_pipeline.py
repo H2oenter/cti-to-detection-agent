@@ -47,7 +47,7 @@ def test_ingest_end_to_end(settings, attack_index):
     assert status == "complete" and n == sum(types.values()) - 2  # minus marking + identity
 
     stages = [line["stage"] for line in read_trace(out / "trace.jsonl")]
-    assert stages == ["ingest", "collector", "validator", "store"]
+    assert stages == ["ingest", "collector", "validator", "recheck", "store"]
 
 
 def test_multi_chunk_overlap_is_deduplicated(settings, attack_index):

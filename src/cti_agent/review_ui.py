@@ -11,9 +11,10 @@ from collections.abc import Callable
 
 from rich.console import Console, Group
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
-from cti_agent.stages.gate import BULK_KINDS, Gate, GateError, ReviewItem
+from cti_agent.stages.gate import BULK_KINDS, Gate, GateError, ReviewItem, clean_indicator
 
 Ask = Callable[[str, list[str]], str]
 AskText = Callable[[str], str]
@@ -39,12 +40,27 @@ def run_review(
             position += 1  # decided by a "rest of type" choice earlier in this session
             continue
         console.print(render_item(item, status, position + 1, len(queue)))
+        clean = gate.clean_indicators() if clean_indicator(item) else []
         keys = ["a", "r", "e", "s", "q"] + (["A", "R"] if item.kind in BULK_KINDS else [])
         prompt = "[a]pprove [r]eject [e]dit [s]kip [q]uit" + (
             " | [A]pprove or [R]eject every remaining " + item.kind if item.kind in BULK_KINDS
             else ""
         )  # fmt: skip
+        if clean:
+            keys.append("A")
+            prompt += f" | [A]pprove all {len(clean)} indicators that passed both checks"
         key = ask(prompt, keys)
+        if key == "A" and clean:
+            console.print(indicator_table(clean))
+            if ask(f"Approve these {len(clean)} indicators?", ["y", "n"]) == "y":
+                try:
+                    done = gate.approve_clean_indicators([i.ref for i in clean])
+                    counts["approved"] += done
+                    console.print(f"[bold]{done}[/bold] indicators: approved (logged one by one)")
+                    position += 1
+                except GateError as exc:
+                    console.print(f"[red]{exc}[/red]")
+            continue
         try:
             if key == "q":
                 break
@@ -128,11 +144,25 @@ def _hunt_body(item: ReviewItem) -> list:
     return lines
 
 
+def indicator_table(items: list[ReviewItem]) -> Table:
+    table = Table(title="Indicators that passed the validator and the re-check",
+                  title_justify="left")  # fmt: skip
+    for col in ("Value", "Pattern", "Evidence"):
+        table.add_column(col, overflow="fold")
+    for item in items:
+        quote = item.stix.get("x_cti_agent_evidence_quote", "")
+        table.add_row(item.stix.get("name", ""), item.stix.get("pattern", ""),
+                      quote if len(quote) <= 90 else quote[:87] + "...")  # fmt: skip
+    return table
+
+
 def _stix_body(item: ReviewItem) -> list:
     obj = item.stix
     lines = []
     if "pattern" in obj:
         lines.append(Text(f"Pattern: {obj['pattern']}"))
+    if obj.get("x_cti_agent_recheck_role"):
+        lines.append(Text(f"Re-check: {obj['x_cti_agent_recheck_role'].replace('_', ' ')}"))
     if obj.get("aliases"):
         lines.append(Text(f"Aliases: {', '.join(obj['aliases'])}"))
     if obj.get("description"):

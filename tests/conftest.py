@@ -19,6 +19,8 @@ from cti_agent.models import (
     Extraction,
     HuntDraft,
     ReviewScores,
+    RoleCheck,
+    RoleVerdict,
 )
 from cti_agent.outputs.brief_out import LeadershipSummary
 from cti_agent.pipeline import run_ingest
@@ -93,13 +95,22 @@ _ANCHORS = {"fixture-spider-c2.net": "Indicators of compromise"}
 
 @dataclass
 class FakeModel:
-    """Stands in for the collector model. Records every request it receives."""
+    """Stands in for the collector model, and for the indicator re-check (which calls it an
+    attacker indicator unless `roles` says otherwise). Records every extraction request."""
 
     include_bad: bool = True
     stop_reason: str = "end_turn"
+    roles: dict[str, str] = field(default_factory=dict)  # value -> re-check role
     calls: list[str] = field(default_factory=list)
+    recheck_calls: list[str] = field(default_factory=list)
 
     def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
+        if schema is RoleCheck:
+            self.recheck_calls.append(user)
+            items = re.findall(r"\[id ([0-9a-f]{12})\] \S+ (\S+)", user)
+            verdicts = [RoleVerdict(id=i, role=self.roles.get(v, "attacker_indicator"),
+                                    reason=f"fake verdict for {v}") for i, v in items]  # fmt: skip
+            return LLMResult(RoleCheck(verdicts=verdicts), "end_turn", 900, 200, 5, model)
         self.calls.append(user)
         if self.stop_reason != "end_turn":
             return LLMResult(None, self.stop_reason, len(user) // 4, 0, 5, model, "simulated")

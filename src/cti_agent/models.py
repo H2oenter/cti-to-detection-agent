@@ -38,7 +38,32 @@ RejectReason = Literal[
     "bad_hash",
     "bad_cve",
     "unknown_technique",
+    "not_an_indicator",  # the second check: a real value, but not presented as an indicator
 ]
+
+# The roles the indicator re-check can give. Only attacker_indicator keeps an item as it is.
+IndicatorRole = Literal[
+    "attacker_indicator",
+    "placeholder_or_example",
+    "reporting_or_contact",
+    "reference",
+    "legitimate_service_or_tool",
+    "victim_or_target",
+    "file_or_host_name",
+    "unclear",
+]
+
+
+class RoleVerdict(BaseModel):
+    id: str = Field(description="The item's id, copied exactly from the input")
+    role: IndicatorRole
+    reason: str = Field(description="One line: what in the text around the value shows this")
+
+
+class RoleCheck(BaseModel):
+    """What the indicator re-check returns: a role for each item it was shown, nothing else."""
+
+    verdicts: list[RoleVerdict]
 
 
 # --- What the collector model returns -------------------------------------------------
@@ -124,6 +149,8 @@ class AcceptedItem(BaseModel):
     item_hash: str
     # Source text around the matched quote, so later stages see what the quote was part of.
     context: str | None = None
+    # The indicator re-check's role for this item, if it ran (an IndicatorRole value).
+    recheck_role: str | None = None
 
 
 class Rejection(BaseModel):
