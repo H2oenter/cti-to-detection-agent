@@ -31,3 +31,6 @@ out/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Gold-label drafts from scripts/gold_draft.py (the reviewed <id>.json files are committed)
+eval/gold/*.draft.json

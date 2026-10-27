@@ -56,7 +56,7 @@ FILE_EXTENSIONS = {
     "lnk", "msi", "scr", "tmp", "dat", "log", "txt", "ini", "cfg", "conf", "json", "xml",
     "yaml", "yml", "csv", "doc", "docx", "xls", "xlsx", "xlsm", "ppt", "pptx", "pdf", "rtf",
     "iso", "img", "vhd", "vhdx", "jar", "php", "asp", "aspx", "jsp", "jpg", "jpeg", "png",
-    "gif", "rar", "gz", "tgz", "elf", "dmg", "apk",
+    "gif", "rar", "gz", "tgz", "elf", "dmg", "apk", "html", "htm", "shtml", "php3",
 }  # fmt: skip
 
 # Advisories show how actors build lookalike domains with stand-ins for the victim's name
@@ -378,3 +378,12 @@ def verify_quote(source: SourceIndex, quote: str) -> RejectReason | None:
     if INJECTION_RE.search(source.context(quote) or ""):
         return "suspected_injection"
     return None
+
+
+def normalise_value(kind: str, raw: str) -> str | None:
+    """The refanged, normalised form of an indicator, or None if it isn't a valid `kind`.
+    Gold labels and eval scoring use this so they match exactly as the validator does."""
+    try:
+        return _normalise_indicator(kind, raw)
+    except _Reject:
+        return None
