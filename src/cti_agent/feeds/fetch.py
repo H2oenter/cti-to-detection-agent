@@ -8,12 +8,13 @@ there an advisory is untrusted input like any report.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cti_agent.config import Settings
-from cti_agent.feeds.http import FeedError, Fetcher, load_sources
+from cti_agent.feeds.http import FeedError, Fetcher, build_url, load_sources
 from cti_agent.feeds.sources import (
     FeedItem,
     fetch_cves,
@@ -22,7 +23,8 @@ from cti_agent.feeds.sources import (
     merge,
     recent_cve_ids,
 )
-from cti_agent.feeds.triage import Triage, load_watchlist, triage
+from cti_agent.feeds.triage import Triage, load_watchlist, rank_key, ranked, score, triage
+from cti_agent.models import VulnAdvisory
 from cti_agent.util.normalise import sha256_bytes
 
 SOURCES = ("kev", "osv", "cve")
@@ -88,6 +90,12 @@ def run_fetch(
     watchlist = load_watchlist(settings.watchlist_file)
     merged = merge(items)
     triaged = [triage(advisory, watchlist) for advisory, _ in merged]
+    templates = probe_templates(fetcher, cfg.get("nuclei"), triaged, errors)
+    triaged = [
+        triage(t.advisory, watchlist, templates[t.advisory.id]) if t.advisory.id in templates else t
+        for t in triaged
+    ]
+    rank = {t.advisory.id: n for n, t in enumerate(ranked(triaged), start=1)}
 
     inbox = settings.inbox_dir / now.strftime("%Y%m%d")
     index = _load_index(inbox / "advisories.json")
@@ -109,8 +117,14 @@ def run_fetch(
             "advisory": advisory.model_dump(mode="json"),
             "triage": {
                 "passed": result.passed,
+                "tier": result.tier,
+                "rank": rank[advisory.id],
+                "zero_day": result.zero_day,
                 "product": result.product.name if result.product else None,
-                "signals": result.signals,
+                "exploited": result.exploited,
+                "impact": result.impact,
+                "reasons": result.reasons,
+                "signals": result.signals,  # the older RCE list, quoted by the pre-patch prompt
             },
             "records": records,
             "fetched_at": now.isoformat(timespec="seconds"),
@@ -122,7 +136,33 @@ def run_fetch(
     with (inbox / "requests.log").open("a", encoding="utf-8") as log:
         for url in fetcher.requested:
             log.write(f"{now.isoformat(timespec='seconds')} GET {url}\n")
-    return FetchResult(inbox, triaged, malicious, fetcher.requested, errors, notes)
+    return FetchResult(inbox, ranked(triaged), malicious, fetcher.requested, errors, notes)
+
+
+def probe_templates(
+    fetcher: Fetcher, cfg: dict | None, triaged: list[Triage], errors: list[str]
+) -> dict[str, tuple[str, ...]]:
+    """Look for a public Nuclei template for the top-ranked CVEs that aren't already known to
+    be exploited, where finding one changes the tier. Returns {advisory ID: extra signals}."""
+    if not cfg:
+        return {}
+    pattern = re.compile(cfg["id_pattern"])
+    candidates = [t for t in ranked(triaged) if t.tier in ("hunt soon", "watch")]
+    found: dict[str, tuple[str, ...]] = {}
+    for result in candidates[: cfg.get("check_top", 20)]:
+        adv = result.advisory
+        cve = next((i for i in (adv.id, *adv.aliases) if pattern.match(i)), None)
+        if cve is None:
+            continue
+        try:
+            for template in cfg["templates"]:
+                url = build_url(template, cfg["id_pattern"], id=cve, year=cve.split("-")[1])
+                if fetcher.exists(url):
+                    found[adv.id] = ("public Nuclei template",)
+                    break
+        except FeedError as exc:
+            errors.append(f"nuclei: {exc}")
+    return found
 
 
 def find_advisory(inbox_root: Path, advisory_id: str) -> tuple[dict, Path] | None:
@@ -133,6 +173,25 @@ def find_advisory(inbox_root: Path, advisory_id: str) -> tuple[dict, Path] | Non
             if advisory_id == key or advisory_id in entry["advisory"].get("aliases", []):
                 return entry, day
     return None
+
+
+def top_candidates(inbox_root: Path, n: int) -> list[str]:
+    """The n highest-ranked advisories in the newest inbox that passed triage. Ranked again
+    here, because one inbox can hold several fetches."""
+    days = sorted((p for p in inbox_root.glob("*") if p.is_dir()), reverse=True)
+    if not days:
+        return []
+    index = _load_index(days[0] / "advisories.json")
+
+    def key(item: tuple[str, dict]) -> tuple:
+        advisory_id, entry = item
+        t = entry["triage"]
+        cvss = score(VulnAdvisory.model_validate(entry["advisory"]))
+        return rank_key(t.get("tier", "other"), t["product"] is not None,
+                        bool(t.get("zero_day")), cvss, advisory_id)  # fmt: skip
+
+    passed = [item for item in index.items() if item[1]["triage"]["passed"]]
+    return [advisory_id for advisory_id, _ in sorted(passed, key=key)[:n]]
 
 
 def parse_since(text: str) -> timedelta:

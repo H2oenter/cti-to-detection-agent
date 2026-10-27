@@ -86,6 +86,16 @@ class Fetcher:
         except (HTTPError, URLError, TimeoutError) as exc:
             raise FeedError(f"GET {url} failed: {exc}") from exc
 
+    def exists(self, url: str) -> bool:
+        """True if the URL is there, False on a 404. Any other failure raises FeedError."""
+        try:
+            with self._open(url):
+                return True
+        except FeedError as exc:
+            if isinstance(exc.__cause__, HTTPError) and exc.__cause__.code == 404:
+                return False
+            raise
+
     def get(self, url: str, range_bytes: int | None = None) -> bytes:
         limit = range_bytes or self.max_bytes
         with self._open(url, range_bytes) as response:

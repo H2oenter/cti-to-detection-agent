@@ -105,7 +105,11 @@ def fetch_osv(
 ) -> tuple[list[FeedItem], int]:
     items, malicious_total = [], 0
     for ecosystem in cfg["ecosystems"]:
-        ids, malicious = recent_osv_ids(fetcher, cfg, ecosystem, since)
+        try:
+            ids, malicious = recent_osv_ids(fetcher, cfg, ecosystem, since)
+        except FeedError as exc:  # one ecosystem's index failing doesn't cost the others
+            errors.append(f"osv {ecosystem}: {exc}")
+            continue
         malicious_total += malicious
         for osv_id in ids:
             try:
@@ -143,6 +147,7 @@ def map_osv(record: dict) -> VulnAdvisory:
         )
     severity = next((s["score"] for s in record.get("severity", []) if "score" in s), None)
     fixed = any(r.fixed for a in affected for r in a.ranges)
+    label = str(record.get("database_specific", {}).get("severity") or "").lower()
     return VulnAdvisory(
         id=record["id"],
         aliases=record.get("aliases", []),
@@ -153,6 +158,7 @@ def map_osv(record: dict) -> VulnAdvisory:
         patch_available=True if fixed else None,
         cwes=record.get("database_specific", {}).get("cwe_ids", []),
         cvss_vector=severity,
+        severity=label if label in ("low", "moderate", "medium", "high", "critical") else None,
         published=_ts(record.get("published")),
         modified=_ts(record.get("modified")),
         references=[r["url"] for r in record.get("references", []) if "url" in r],

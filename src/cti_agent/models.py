@@ -197,6 +197,8 @@ class VulnAdvisory(BaseModel):
     cwes: list[str] = Field(default_factory=list)
     cvss_score: float | None = Field(default=None, ge=0, le=10)
     cvss_vector: str | None = None
+    # A publisher's label, for records with a vector but no score (GitHub advisories).
+    severity: Literal["low", "moderate", "medium", "high", "critical"] | None = None
     kev_listed: bool = False
     kev_due_date: date | None = None
     ssvc_exploitation: Literal["none", "poc", "active"] | None = None

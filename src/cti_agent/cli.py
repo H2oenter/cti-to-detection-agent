@@ -209,7 +209,7 @@ def fetch(
         list[str] | None, typer.Option("--id", help="Also fetch this CVE record. Repeatable.")
     ] = None,
     show_all: Annotated[
-        bool, typer.Option("--all", help="List advisories that failed triage too.")
+        bool, typer.Option("--all", help="List every advisory, not just hunt now and hunt soon.")
     ] = False,
 ) -> None:
     """Pull fresh advisories from the allowlisted feeds and triage them (no LLM)."""
@@ -223,30 +223,39 @@ def fetch(
     settings = Settings()
     result = run_fetch(settings, since=window, sources=wanted, cve_ids=tuple(cve_id or ()))
 
+    # result.triaged comes ranked: hunt now, hunt soon, watch, other.
     rows = [t for t in result.triaged if t.passed or show_all]
-    rows.sort(key=lambda t: (not t.passed, -(t.advisory.cvss_score or 0)))
     table = Table(title=f"Triage: last {since}", title_justify="left")
-    for col in ("Advisory", "Product", "Signals", "CVSS", "KEV due", "Fixed in", "Pass"):
+    for col in ("#", "Advisory", "Product", "Tier", "Why", "CVSS", "KEV due", "Fixed in"):
         table.add_column(col, overflow="fold")
-    for t in rows:
+    tier_style = {"hunt now": "bold red", "hunt soon": "yellow"}
+    for n, t in enumerate(rows, start=1):
         adv = t.advisory
         fixed = sorted({r.fixed for p in adv.affected for r in p.ranges if r.fixed})
+        product = next((f"{p.vendor or p.ecosystem or ''} {p.product}".strip()
+                        for p in adv.affected), "")  # fmt: skip
+        style = tier_style.get(t.tier, "")
         table.add_row(
-            adv.id,
-            t.product.name if t.product else "",
-            "; ".join(t.signals),
+            str(n),
+            adv.id + (" [bold red](zero-day)[/bold red]" if t.zero_day else ""),
+            product + (" [cyan](watchlist)[/cyan]" if t.product else ""),
+            f"[{style}]{t.tier}[/{style}]" if style else t.tier,
+            "; ".join(t.reasons),
             str(adv.cvss_score or ""),
             str(adv.kev_due_date or ""),
             ", ".join(fixed[:4]) + ("…" if len(fixed) > 4 else ""),
-            "[green]yes[/green]" if t.passed else "no",
         )
     console.print(table)
-    passed = sum(t.passed for t in result.triaged)
+    tiers = Counter(t.tier for t in result.triaged)
+    zero_days = sum(t.zero_day for t in result.triaged)
     console.print(
-        f"{len(result.triaged)} advisories, [bold]{passed} passed triage[/bold]; "
+        f"{len(result.triaged)} advisories: [bold]{tiers['hunt now']} hunt now[/bold], "
+        f"{tiers['hunt soon']} hunt soon ({zero_days} zero-day), {tiers['watch']} watch; "
         f"{result.malicious_packages} malicious-package reports skipped; "
         f"{len(result.requested)} GET requests, all to allowlisted hosts."
     )
+    if tiers["hunt now"] + tiers["hunt soon"]:
+        console.print("Draft pre-patch hunts for the top ones: cti-agent prepatch --top 5")
     for note in result.notes:
         console.print(f"[yellow]note:[/yellow] {note}")
     for error in result.errors[:5]:

@@ -17,10 +17,11 @@ catalogue = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vuln
 mirror = "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json"
 
 [osv]
-ecosystems = ["npm", "Packagist"]
+# Open-source package advisories, for every major ecosystem (OSV's own directory names).
+ecosystems = ["npm", "Packagist", "PyPI", "Maven", "Go", "NuGet", "crates.io", "RubyGems"]
 index = "https://osv-vulnerabilities.storage.googleapis.com/{ecosystem}/modified_id.csv"
 record = "https://osv-vulnerabilities.storage.googleapis.com/{ecosystem}/{id}.json"
-id_pattern = '^(GHSA(-[0-9a-z]{4}){3}|CVE-\d{4}-\d{4,}|PYSEC-\d{4}-\d+|MAL-\d{4}-\d+)$'
+id_pattern = '^(GHSA(-[0-9a-z]{4}){3}|CVE-\d{4}-\d{4,}|PYSEC-\d{4}-\d+|GO-\d{4}-\d+|RUSTSEC-\d{4}-\d+|MAL-\d{4}-\d+)$'
 max_records = 200
 
 [cvelist]
@@ -30,3 +31,14 @@ id_pattern = '^CVE-\d{4}-\d{4,}$'
 max_records = 300
 # deltaLog.json is ~30 MB and newest-first; only this much of its head is read.
 delta_log_max_bytes = 4_000_000
+
+[nuclei]
+# A public Nuclei scanner template for a CVE usually comes shortly before mass scanning, so
+# one counts as an exploitation signal. Only the top-ranked CVEs that aren't already known
+# to be exploited are checked, and a 404 just means there is no template (yet).
+templates = [
+  "https://raw.githubusercontent.com/projectdiscovery/nuclei-templates/main/http/cves/{year}/{id}.yaml",
+  "https://raw.githubusercontent.com/projectdiscovery/nuclei-templates/main/network/cves/{year}/{id}.yaml",
+]
+id_pattern = '^CVE-\d{4}-\d{4,}$'
+check_top = 20
