@@ -5,7 +5,7 @@
 secrets/
 
 # Local-only brief (mentions the interview; never publish)
-BRIEF.md
+/BRIEF.md
 
 # Python
 .venv/
