@@ -180,6 +180,8 @@ class AffectedProduct(BaseModel):
     product: str
     ranges: list[VersionRange] = Field(default_factory=list)
     versions: list[str] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)  # e.g. ["Windows"]
+    modules: list[str] = Field(default_factory=list)  # e.g. ["CGI"]
 
 
 class VulnAdvisory(BaseModel):

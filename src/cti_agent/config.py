@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     allowlist_file: Path = Path("data/allowlist.txt")
     rules_file: Path = Path("data/my_rules.sample.csv")
     kql_schema_file: Path = Path("data/kql_schema.json")
+    sources_file: Path = Path("data/sources.toml")
+    watchlist_file: Path = Path("data/watchlist.toml")
+    inbox_dir: Path = Path("reports/inbox")
     out_dir: Path = Path("out")
 
     @property

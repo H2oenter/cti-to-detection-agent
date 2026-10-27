@@ -1,0 +1,26 @@
+# Products you run. `cti-agent fetch` keeps an advisory only if it matches one of these
+# AND shows a remote-code-execution signal. Matching is case-insensitive.
+#
+#   vendors / products: CVE and KEV vendor and product names
+#   packages:           "<ecosystem>:<name glob>" for OSV package advisories
+#   processes:          what the software runs as, for behaviour hunts
+#   servers:            web servers that commonly front it
+#   tvm_names:          Defender TVM SoftwareName values, for exposure queries
+
+[[product]]
+name = "PHP"
+vendors = ["php group", "php"]
+products = ["php"]
+packages = ["Packagist:*"]
+processes = ["php-cgi.exe", "php.exe", "php-cgi", "php-fpm", "php"]
+servers = ["httpd.exe", "w3wp.exe", "nginx.exe", "httpd", "apache2", "nginx"]
+tvm_names = ["php"]
+
+[[product]]
+name = "Node.js"
+vendors = ["nodejs", "node.js", "openjs foundation"]
+products = ["node.js", "node", "nodejs"]
+packages = ["npm:*"]
+processes = ["node.exe", "node"]
+servers = ["node.exe", "node", "nginx", "httpd"]
+tvm_names = ["node.js"]

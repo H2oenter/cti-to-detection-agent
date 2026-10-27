@@ -1,0 +1,32 @@
+# The only endpoints `cti-agent fetch` may call (design rule 3).
+# URLs are built from these templates plus an ID that must match the source's id_pattern.
+# Links found inside feed records are recorded as references and never requested.
+
+[http]
+allowed_hosts = [
+  "www.cisa.gov",
+  "raw.githubusercontent.com",
+  "osv-vulnerabilities.storage.googleapis.com",
+]
+max_bytes = 20_000_000
+timeout_seconds = 60
+
+[kev]
+catalogue = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+# CISA's GitHub mirror, a few days behind; used only if the catalogue can't be fetched.
+mirror = "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json"
+
+[osv]
+ecosystems = ["npm", "Packagist"]
+index = "https://osv-vulnerabilities.storage.googleapis.com/{ecosystem}/modified_id.csv"
+record = "https://osv-vulnerabilities.storage.googleapis.com/{ecosystem}/{id}.json"
+id_pattern = '^(GHSA(-[0-9a-z]{4}){3}|CVE-\d{4}-\d{4,}|PYSEC-\d{4}-\d+|MAL-\d{4}-\d+)$'
+max_records = 200
+
+[cvelist]
+delta_log = "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/deltaLog.json"
+record = "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/{year}/{bucket}xxx/{id}.json"
+id_pattern = '^CVE-\d{4}-\d{4,}$'
+max_records = 300
+# deltaLog.json is ~30 MB and newest-first; only this much of its head is read.
+delta_log_max_bytes = 4_000_000

@@ -18,6 +18,8 @@ from rich.table import Table
 
 from cti_agent import __version__
 from cti_agent.config import Settings
+from cti_agent.feeds.fetch import SOURCES as FEED_SOURCES
+from cti_agent.feeds.fetch import parse_since, run_fetch
 from cti_agent.inputs import InputError
 from cti_agent.llm.client import (
     AnthropicClient,
@@ -184,10 +186,57 @@ def _print_ingest(result: IngestResult) -> None:
 
 @app.command()
 def fetch(
-    since: Annotated[str, typer.Option(help="Look-back window, e.g. 24h.")] = "24h",
+    since: Annotated[str, typer.Option(help="Look-back window: 90m, 24h, 7d.")] = "24h",
+    source: Annotated[str, typer.Option(help="Comma-separated: kev, osv, cve.")] = "kev,osv,cve",
+    cve_id: Annotated[
+        list[str] | None, typer.Option("--id", help="Also fetch this CVE record. Repeatable.")
+    ] = None,
+    show_all: Annotated[
+        bool, typer.Option("--all", help="List advisories that failed triage too.")
+    ] = False,
 ) -> None:
-    """Pull fresh vulnerability advisories from the allowlisted feeds (no LLM)."""
-    _not_yet("M2")
+    """Pull fresh advisories from the allowlisted feeds and triage them (no LLM)."""
+    try:
+        window = parse_since(since)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    wanted = tuple(s.strip() for s in source.split(",") if s.strip())
+    if unknown := set(wanted) - set(FEED_SOURCES):
+        raise typer.BadParameter(f"unknown source(s): {', '.join(sorted(unknown))}")
+    settings = Settings()
+    result = run_fetch(settings, since=window, sources=wanted, cve_ids=tuple(cve_id or ()))
+
+    rows = [t for t in result.triaged if t.passed or show_all]
+    rows.sort(key=lambda t: (not t.passed, -(t.advisory.cvss_score or 0)))
+    table = Table(title=f"Triage: last {since}", title_justify="left")
+    for col in ("Advisory", "Product", "Signals", "CVSS", "KEV due", "Fixed in", "Pass"):
+        table.add_column(col, overflow="fold")
+    for t in rows:
+        adv = t.advisory
+        fixed = sorted({r.fixed for p in adv.affected for r in p.ranges if r.fixed})
+        table.add_row(
+            adv.id,
+            t.product.name if t.product else "",
+            "; ".join(t.signals),
+            str(adv.cvss_score or ""),
+            str(adv.kev_due_date or ""),
+            ", ".join(fixed[:4]) + ("…" if len(fixed) > 4 else ""),
+            "[green]yes[/green]" if t.passed else "no",
+        )
+    console.print(table)
+    passed = sum(t.passed for t in result.triaged)
+    console.print(
+        f"{len(result.triaged)} advisories, [bold]{passed} passed triage[/bold]; "
+        f"{result.malicious_packages} malicious-package reports skipped; "
+        f"{len(result.requested)} GET requests, all to allowlisted hosts."
+    )
+    for note in result.notes:
+        console.print(f"[yellow]note:[/yellow] {note}")
+    for error in result.errors[:5]:
+        console.print(f"[yellow]skipped:[/yellow] {error}")
+    if len(result.errors) > 5:
+        console.print(f"[yellow]…and {len(result.errors) - 5} more skipped[/yellow]")
+    console.print(f"Inbox: {result.inbox}")
 
 
 @app.command()
