@@ -7,6 +7,7 @@ sends data anywhere (design rule 5).
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -26,7 +27,14 @@ from cti_agent.llm.client import (
     RecordingClient,
     ReplayClient,
 )
-from cti_agent.pipeline import IngestBlocked, IngestResult, run_ingest
+from cti_agent.models import AnalysisResult
+from cti_agent.pipeline import (
+    AnalyseError,
+    IngestBlocked,
+    IngestResult,
+    run_analyse,
+    run_ingest,
+)
 from cti_agent.trace import read_trace
 
 
@@ -81,18 +89,7 @@ def ingest(
 ) -> None:
     """Stages 1-3: extract, validate and store a report."""
     settings = Settings()
-    client: LLMClient
-    if replay:
-        client = ReplayClient(replay)
-    else:
-        key = settings.anthropic_api_key
-        client = AnthropicClient(
-            api_key=key.get_secret_value() if key else None,
-            workspace_id=settings.anthropic_workspace_id,
-        )
-    if record:
-        client = RecordingClient(client, record)
-
+    client = _make_client(settings, replay, record)
     try:
         result = run_ingest(path, tlp.value, settings, client)
     except IngestBlocked as exc:
@@ -106,10 +103,26 @@ def ingest(
         raise typer.Exit(code=3) from None
     _print_ingest(result)
     if replay:
-        console.print(
-            "[dim]Replayed recorded responses: token counts and cost are from the original "
-            "run. Nothing was sent to the API.[/dim]"
+        console.print(REPLAY_NOTE)
+
+
+def _make_client(settings: Settings, replay: Path | None, record: Path | None) -> LLMClient:
+    client: LLMClient
+    if replay:
+        client = ReplayClient(replay)
+    else:
+        key = settings.anthropic_api_key
+        client = AnthropicClient(
+            api_key=key.get_secret_value() if key else None,
+            workspace_id=settings.anthropic_workspace_id,
         )
+    return RecordingClient(client, record) if record else client
+
+
+REPLAY_NOTE = (
+    "[dim]Replayed recorded responses: token counts and cost are from the original "
+    "run. Nothing was sent to the API.[/dim]"
+)
 
 
 def _label_value(item_type: str, item: dict) -> tuple[str, str]:
@@ -164,9 +177,63 @@ def fetch(
 
 
 @app.command()
-def analyse(run_id: str) -> None:
-    """Stages 4-5: ATT&CK coverage, KQL drafts and reviewer scores."""
-    _not_yet("M2")
+def analyse(
+    run_id: str,
+    replay: Annotated[
+        Path | None, typer.Option(help="Replay recorded model responses from this folder.")
+    ] = None,
+    record: Annotated[
+        Path | None, typer.Option(help="Save model responses to this folder as test fixtures.")
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="Redo an analysed run.")] = False,
+) -> None:
+    """Stages 4-5: ATT&CK coverage, KQL drafts, reviewer scores and the brief."""
+    settings = Settings()
+    client = _make_client(settings, replay, record)
+    try:
+        analysis = run_analyse(run_id, settings, client, force=force)
+    except IngestBlocked as exc:
+        console.print(f"[red]Blocked:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+    except (AnalyseError, FileNotFoundError, FixtureMissing) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+    except FatalLLMError as exc:
+        console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
+        raise typer.Exit(code=3) from None
+    _print_analysis(analysis, settings.out_dir / run_id)
+    if replay:
+        console.print(REPLAY_NOTE)
+
+
+def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:
+    states = Counter(e.state for e in analysis.coverage)
+    console.print(
+        f"\n[bold]Coverage[/bold] {len(analysis.coverage)} techniques: "
+        f"[green]{states['covered']} covered[/green], [yellow]{states['partial']} partial[/yellow],"
+        f" [red]{states['gap']} gaps[/red], {states['not_applicable']} mobile (not huntable)"
+    )
+    table = Table(title="Draft hunts (pending human review)", title_justify="left")
+    for col in ("Technique", "Title", "Lint", "Review F/K/A/C", "Attention"):
+        table.add_column(col, overflow="fold")
+    for h in analysis.hunts:
+        errors = [f.code for f in h.lint if f.severity == "error"]
+        warnings = [f.code for f in h.lint if f.severity == "warning"]
+        lint = (
+            ", ".join(errors) if errors else (f"ok ({', '.join(warnings)})" if warnings else "ok")
+        )
+        r = h.review
+        scores = (
+            f"{r.faithful}/{r.kql_correct}/{r.actionable}/{r.calibrated}" if r else h.review_outcome
+        )
+        flag = "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else ""
+        table.add_row(h.technique_id, h.draft.title, lint, scores, flag)
+    console.print(table)
+    if analysis.not_drafted:
+        console.print(f"Gaps not drafted this run: {', '.join(analysis.not_drafted)}")
+    console.print(f"\n[bold]For leadership[/bold] ({analysis.summary_source}):")
+    console.print(analysis.leadership_summary)
+    console.print(f"\nBrief: {out_dir / 'brief.md'}   Hunts: {out_dir / 'hunts'}")
 
 
 @app.command()

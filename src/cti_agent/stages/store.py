@@ -9,7 +9,7 @@ from pathlib import Path
 
 import stix2
 
-from cti_agent.models import Provenance, RunSummary
+from cti_agent.models import Hunt, Provenance, RunSummary
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -30,6 +30,17 @@ CREATE TABLE IF NOT EXISTS objects (
     review_status TEXT NOT NULL DEFAULT 'pending',
     json          TEXT NOT NULL,
     PRIMARY KEY (run_id, stix_id)
+);
+CREATE TABLE IF NOT EXISTS drafts (
+    run_id          TEXT NOT NULL REFERENCES runs(run_id),
+    draft_id        TEXT NOT NULL,
+    technique       TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    item_hash       TEXT NOT NULL,
+    needs_attention INTEGER NOT NULL,
+    review_status   TEXT NOT NULL DEFAULT 'pending',
+    json            TEXT NOT NULL,
+    PRIMARY KEY (run_id, draft_id)
 );
 CREATE TABLE IF NOT EXISTS audit (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,3 +103,26 @@ def load_summary(db_path: Path, run_id: str) -> RunSummary | None:
     with closing(sqlite3.connect(db_path)) as conn:
         row = conn.execute("SELECT summary_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     return RunSummary.model_validate(json.loads(row[0])) if row else None
+
+
+def save_drafts(db_path: Path, run_id: str, hunts: list[Hunt]) -> None:
+    """Replace a run's drafts. Re-analysing a run resets them to pending review."""
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.executescript(SCHEMA)
+        conn.execute("DELETE FROM drafts WHERE run_id = ?", (run_id,))
+        conn.executemany(
+            "INSERT INTO drafts (run_id, draft_id, technique, kind, item_hash, needs_attention,"
+            " json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    run_id,
+                    h.draft_id,
+                    h.technique_id,
+                    h.kind,
+                    h.item_hash,
+                    int(h.needs_attention),
+                    h.model_dump_json(),
+                )
+                for h in hunts
+            ],
+        )

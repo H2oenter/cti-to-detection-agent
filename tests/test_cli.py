@@ -77,3 +77,30 @@ def test_tlp_gate():
     approved = Settings(_env_file=None, endpoint_approved_for_amber=True)
     assert tlp_block_reason("AMBER+STRICT", approved) is None
     assert tlp_block_reason("RED", approved) is not None
+
+
+def test_analyse_with_replayed_responses(cli_env, settings, aa23_run, aa23_attack, monkeypatch):
+    from conftest import AA23_ATTACK, FakeAnalyst
+
+    from cti_agent.pipeline import run_analyse
+
+    monkeypatch.setenv("OUT_DIR", str(settings.out_dir))
+    monkeypatch.setenv("ATTACK_BUNDLE", str(AA23_ATTACK[0]))
+    monkeypatch.setenv("ATTACK_MOBILE_BUNDLE", str(AA23_ATTACK[1]))
+    monkeypatch.setenv("RULES_FILE", str(settings.rules_file))
+    monkeypatch.setenv("KQL_SCHEMA_FILE", str(settings.kql_schema_file))
+    fixtures = cli_env / "llm-analyse"
+    run_analyse(aa23_run, settings, RecordingClient(FakeAnalyst(), fixtures), attack=aa23_attack)
+
+    result = runner.invoke(app, ["analyse", aa23_run, "--replay", str(fixtures), "--force"])
+    assert result.exit_code == 0, result.output
+    assert "Draft hunts" in result.output and "For leadership" in result.output
+    assert "Nothing was sent to the API" in result.output
+
+    again = runner.invoke(app, ["analyse", aa23_run, "--replay", str(fixtures)])
+    assert again.exit_code == 2 and "--force" in again.output
+
+
+def test_analyse_unknown_run_exits_2(cli_env):
+    result = runner.invoke(app, ["analyse", "no-such-run", "--replay", "x"])
+    assert result.exit_code == 2

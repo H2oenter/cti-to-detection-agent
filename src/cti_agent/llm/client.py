@@ -4,7 +4,7 @@ Stages talk to `LLMClient`, never to an SDK. Swapping the public API for an
 enterprise endpoint (Part B) means adding another implementation here and
 choosing it in config.
 
-There are no tool definitions anywhere in this module: the collector gets
+There are no tool definitions anywhere in this module: every model gets
 structured output and nothing else (design rule 2).
 """
 
@@ -22,6 +22,10 @@ from pydantic import BaseModel, ValidationError
 from cti_agent.util.normalise import canonical_json, sha256_bytes
 
 T = TypeVar("T", bound=BaseModel)
+
+# Server-side refusal fallback ("default" routing). Threat-intel text can trip safety
+# classifiers; with this, a declined request is re-run on a fallback model in the same call.
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
 class FatalLLMError(Exception):
@@ -41,6 +45,8 @@ class LLMResult(Generic[T]):
     latency_ms: int
     model: str
     detail: str | None = None
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class LLMClient(Protocol):
@@ -53,6 +59,7 @@ class LLMClient(Protocol):
         schema: type[T],
         max_tokens: int,
         effort: str | None = None,
+        refusal_fallback: bool = False,
     ) -> LLMResult[T]: ...
 
 
@@ -80,17 +87,26 @@ class AnthropicClient:
         schema: type[T],
         max_tokens: int,
         effort: str | None = None,
+        refusal_fallback: bool = False,
     ) -> LLMResult[T]:
         start = time.perf_counter()
+        request = {
+            "model": model,
+            "max_tokens": max_tokens,
+            # Cached: the system prompt is the stable prefix shared by every call of a stage.
+            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            "messages": [{"role": "user", "content": user}],
+            "output_format": schema,
+        }
+        if effort:
+            request["output_config"] = {"effort": effort}
         try:
-            response = self._client.messages.parse(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-                output_format=schema,
-                **({"output_config": {"effort": effort}} if effort else {}),
-            )
+            if refusal_fallback:
+                response = self._client.beta.messages.parse(
+                    **request, betas=[FALLBACK_BETA], fallbacks="default"
+                )
+            else:
+                response = self._client.messages.parse(**request)
         except (
             anthropic.AuthenticationError,
             anthropic.PermissionDeniedError,
@@ -104,23 +120,28 @@ class AnthropicClient:
         except anthropic.APIError as exc:  # retries exhausted: rate limit, overload, network
             return LLMResult(None, "error", 0, 0, _ms(start), model, type(exc).__name__)
 
-        detail = None
+        notes = []
         parsed = None
         if response.stop_reason == "refusal":
             details = getattr(response, "stop_details", None)
-            detail = f"refusal category: {getattr(details, 'category', None)}"
+            notes.append(f"refusal category: {getattr(details, 'category', None)}")
         elif response.stop_reason == "max_tokens":
-            detail = "output hit max_tokens"
+            notes.append("output hit max_tokens")
         else:
             parsed = response.parsed_output
+        if response.model != model:
+            notes.append(f"refusal fallback: answered by {response.model}")
+        usage = response.usage
         return LLMResult(
             parsed=parsed,
             stop_reason=response.stop_reason or "unknown",
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
             latency_ms=_ms(start),
             model=response.model,
-            detail=detail,
+            detail="; ".join(notes) or None,
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", None) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", None) or 0,
         )
 
 
@@ -138,7 +159,7 @@ class RecordingClient:
         self.fixture_dir = fixture_dir
         fixture_dir.mkdir(parents=True, exist_ok=True)
 
-    def structured(self, *, model, system, user, schema, max_tokens, effort=None):
+    def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
         result = self.inner.structured(
             model=model,
             system=system,
@@ -146,6 +167,7 @@ class RecordingClient:
             schema=schema,
             max_tokens=max_tokens,
             effort=effort,
+            **kwargs,
         )
         key = request_key(model, system, user)
         record = {
@@ -153,7 +175,12 @@ class RecordingClient:
             "model": result.model,
             "stop_reason": result.stop_reason,
             "detail": result.detail,
-            "usage": {"input_tokens": result.input_tokens, "output_tokens": result.output_tokens},
+            "usage": {
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+                "cache_read_tokens": result.cache_read_tokens,
+                "cache_write_tokens": result.cache_write_tokens,
+            },
             "output": result.parsed.model_dump(mode="json") if result.parsed else None,
         }
         path = self.fixture_dir / f"{key[:16]}.json"
@@ -167,7 +194,7 @@ class ReplayClient:
     def __init__(self, fixture_dir: Path) -> None:
         self.fixture_dir = fixture_dir
 
-    def structured(self, *, model, system, user, schema, max_tokens, effort=None):
+    def structured(self, *, model, system, user, schema, max_tokens, effort=None, **kwargs):
         key = request_key(model, system, user)
         path = self.fixture_dir / f"{key[:16]}.json"
         if not path.exists():
@@ -177,14 +204,17 @@ class ReplayClient:
             )
         record = json.loads(path.read_text(encoding="utf-8"))
         output = record["output"]
+        usage = record["usage"]
         return LLMResult(
             parsed=schema.model_validate(output) if output is not None else None,
             stop_reason=record["stop_reason"],
-            input_tokens=record["usage"]["input_tokens"],
-            output_tokens=record["usage"]["output_tokens"],
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
             latency_ms=0,
             model=record["model"],
             detail="; ".join(filter(None, ["replayed", record.get("detail")])),
+            cache_read_tokens=usage.get("cache_read_tokens", 0),
+            cache_write_tokens=usage.get("cache_write_tokens", 0),
         )
 
 

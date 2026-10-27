@@ -12,10 +12,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cti_agent.config import Settings
-from cti_agent.llm.client import FatalLLMError, LLMClient
+from cti_agent.llm.client import LLMClient
 from cti_agent.llm.prompting import Prompt
+from cti_agent.llm.steps import outcome_of, traced_call
 from cti_agent.models import Extraction
-from cti_agent.trace import Tracer, estimate_tokens
+from cti_agent.trace import Tracer
 
 CHARS_PER_TOKEN = 4.0
 _TAG = re.compile(r"<\s*/?\s*untrusted_report\b[^>]*>", re.IGNORECASE)
@@ -90,53 +91,29 @@ def collect(
     for chunk in chunks:
         step = f"chunk {chunk.index}/{len(chunks)}"
         user = f"Chunk {chunk.index} of {len(chunks)}.\n\n{wrap_untrusted(chunk.text)}"
-        needed = estimate_tokens(prompt.text + user) + settings.extract_max_output_tokens
-        if not tracer.can_spend(needed):
-            detail = f"needs ~{needed} tokens, {tracer.budget - tracer.used} left"
-            for rest in chunks[chunk.index - 1 :]:
-                results.append(ChunkResult(rest.index, "skipped_budget", None, detail))
+        result = traced_call(
+            client=client,
+            tracer=tracer,
+            stage="collector",
+            step=step,
+            model=settings.extract_model,
+            system=prompt.text,
+            user=user,
+            schema=Extraction,
+            max_tokens=settings.extract_max_output_tokens,
+            effort=settings.extract_effort,
+        )
+        if result is None:  # over budget: this chunk and every later one are skipped
+            results.append(ChunkResult(chunk.index, "skipped_budget", None, "token budget"))
+            for rest in chunks[chunk.index :]:
+                results.append(ChunkResult(rest.index, "skipped_budget", None, "token budget"))
                 tracer.record(
                     stage="collector",
                     step=f"chunk {rest.index}/{len(chunks)}",
                     outcome="skipped_budget",
-                    detail=detail,
+                    detail="an earlier chunk hit the token budget",
                 )
             break
-
-        try:
-            result = client.structured(
-                model=settings.extract_model,
-                system=prompt.text,
-                user=user,
-                schema=Extraction,
-                max_tokens=settings.extract_max_output_tokens,
-                effort=settings.extract_effort,
-            )
-        except FatalLLMError as exc:
-            tracer.record(
-                stage="collector", step=step, outcome="fatal_error", detail=str(exc)[:300]
-            )
-            raise
-        outcome = _outcome(result.stop_reason, result.parsed is not None)
-        tracer.record(
-            stage="collector",
-            step=step,
-            outcome=outcome,
-            model=result.model,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            latency_ms=result.latency_ms,
-            detail=result.detail,
-        )
+        outcome = outcome_of(result)
         results.append(ChunkResult(chunk.index, outcome, result.parsed, result.detail))
     return results
-
-
-def _outcome(stop_reason: str, parsed: bool) -> ChunkOutcome:
-    if parsed:
-        return "ok"
-    return {
-        "refusal": "refused",
-        "max_tokens": "truncated",
-        "invalid_output": "invalid_output",
-    }.get(stop_reason, "error")

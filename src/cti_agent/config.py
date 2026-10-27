@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     review_model: str = "claude-sonnet-5-5"
     extract_effort: Literal["low", "medium", "high"] = "medium"
     extract_max_output_tokens: int = 16_000
+    analyse_effort: Literal["low", "medium", "high"] = "medium"
+    review_effort: Literal["low", "medium", "high"] = "medium"
+    analyse_max_output_tokens: int = 16_000
+    max_hunts_per_run: int = 5
 
     max_tokens_per_run: int = 300_000
     chunk_target_tokens: int = 8_000
@@ -49,6 +53,7 @@ class Settings(BaseSettings):
     attack_mobile_bundle: Path | None = Path("data/attack/mobile-attack.json")
     allowlist_file: Path = Path("data/allowlist.txt")
     rules_file: Path = Path("data/my_rules.sample.csv")
+    kql_schema_file: Path = Path("data/kql_schema.json")
     out_dir: Path = Path("out")
 
     @property
@@ -62,12 +67,21 @@ class Settings(BaseSettings):
             bundles.append(self.attack_mobile_bundle)
         return bundles
 
-    def estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float | None:
+    def estimate_cost(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> float | None:
         price = self.model_prices.get(model)
         if price is None:
             return None
+        # Prompt-cache writes cost 1.25x the input price and reads 0.1x.
+        effective_input = input_tokens + 1.25 * cache_write_tokens + 0.1 * cache_read_tokens
         return (
-            input_tokens * price.input_per_mtok + output_tokens * price.output_per_mtok
+            effective_input * price.input_per_mtok + output_tokens * price.output_per_mtok
         ) / 1_000_000
 
 

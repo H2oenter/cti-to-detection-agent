@@ -46,11 +46,18 @@ class Tracer:
         output_tokens: int = 0,
         latency_ms: int = 0,
         detail: str | None = None,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> None:
         cost = (
-            self.settings.estimate_cost(model, input_tokens, output_tokens) if model else 0.0
+            self.settings.estimate_cost(
+                model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+            )
+            if model
+            else 0.0
         ) or 0.0
-        self.input_tokens += input_tokens
+        # Cached tokens are still processed, so they count against the budget.
+        self.input_tokens += input_tokens + cache_read_tokens + cache_write_tokens
         self.output_tokens += output_tokens
         self.cost_usd += cost
         line = {
@@ -59,7 +66,9 @@ class Tracer:
             "stage": stage,
             "step": step,
             "model": model,
-            "input_tokens": input_tokens,
+            "input_tokens": input_tokens + cache_read_tokens + cache_write_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
             "output_tokens": output_tokens,
             "latency_ms": latency_ms,
             "est_cost_usd": round(cost, 6),
