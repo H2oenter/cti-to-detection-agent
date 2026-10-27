@@ -272,7 +272,7 @@ class Gate:
         bundle_path = root / "stix-bundle.json"
         if objects:
             ids = {o["id"] for o in objects}
-            run_objects = self._run_objects()
+            run_objects = self.run_objects()
             relationships = [
                 o for o in run_objects
                 if o["type"] == "relationship" and o["source_ref"] in ids and o["target_ref"] in ids
@@ -291,7 +291,7 @@ class Gate:
             bundle_path.unlink()
         return root
 
-    def _run_objects(self) -> list[dict]:
+    def run_objects(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT json FROM objects WHERE run_id = ?", (self.run_id,))
             return [json.loads(raw) for (raw,) in rows]

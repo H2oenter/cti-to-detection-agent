@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # Part B: TLP:AMBER only goes to an endpoint approved for confidential data.
     endpoint_approved_for_amber: bool = False
 
+    # publish --apply only. A separate identity from anything that reads: it needs
+    # Microsoft Sentinel Contributor on this workspace and nothing else.
+    sentinel_workspace_id: str | None = None
+    publish_azure_tenant_id: str | None = None
+    publish_azure_client_id: str | None = None
+    publish_azure_client_secret: SecretStr | None = None
+    publish_azure_certificate_path: Path | None = None
+
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_PRICES))
 
     attack_bundle: Path = Path("data/attack/enterprise-attack.json")

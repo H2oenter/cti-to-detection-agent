@@ -146,3 +146,13 @@ def save_run_row(db_path: Path, provenance: Provenance, status: str, summary: di
                 json.dumps(summary),
             ),
         )
+
+
+def mark_published(db_path: Path, run_id: str, result) -> None:
+    """Objects Sentinel accepted in one batch become 'published'."""
+    failed = {f["id"] for f in result.failed}
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.executemany(
+            "UPDATE objects SET review_status = 'published' WHERE run_id = ? AND stix_id = ?",
+            [(run_id, i) for i in result.object_ids if i not in failed],
+        )

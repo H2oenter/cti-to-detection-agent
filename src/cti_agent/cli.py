@@ -6,8 +6,10 @@ sends data anywhere (design rule 5).
 
 from __future__ import annotations
 
+import json
 import sys
 from collections import Counter
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -32,6 +34,16 @@ from cti_agent.llm.client import (
     ReplayClient,
 )
 from cti_agent.models import AnalysisResult
+from cti_agent.outputs.sentinel_upload import (
+    BATCH_SIZE,
+    BatchResult,
+    PublishError,
+    endpoint,
+    plan_sentinel,
+    send,
+    token_provider,
+    write_dry_run,
+)
 from cti_agent.pipeline import (
     AnalyseError,
     IngestBlocked,
@@ -42,6 +54,7 @@ from cti_agent.pipeline import (
 )
 from cti_agent.review_ui import run_review
 from cti_agent.stages.gate import Gate, GateError
+from cti_agent.stages.store import mark_published
 from cti_agent.trace import read_trace
 
 
@@ -458,13 +471,107 @@ def audit_(
 @app.command()
 def publish(
     run_id: str,
-    target: Annotated[str, typer.Option(help="sentinel, misp or opencti.")] = "sentinel",
+    target: Annotated[str, typer.Option(help="Only sentinel for now.")] = "sentinel",
     apply: Annotated[
         bool, typer.Option("--apply", help="Actually send. Default is a dry run.")
     ] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="With --apply: don't ask to confirm.")] = False,
+    use_az_login: Annotated[
+        bool, typer.Option("--use-az-login", help="With --apply: publish as you (after az login).")
+    ] = False,
+    reviewer: Annotated[str | None, typer.Option(help="Name for the audit log.")] = None,
 ) -> None:
-    """Build upload payloads for approved items. Dry run unless --apply."""
-    _not_yet("M3")
+    """Upload approved STIX objects to Sentinel. A dry run that sends nothing unless --apply."""
+    if target != "sentinel":
+        console.print(
+            f"[yellow]{target} publishing is a stretch goal and isn't built yet.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    settings = Settings()
+    log = _audit_log(settings)
+    try:
+        gate = Gate(settings, run_id, current_actor(reviewer), log)
+        plan = plan_sentinel(gate)
+    except AuditChainBroken as exc:
+        console.print(
+            f"[red]The audit log failed verification, so nothing is published:[/red] {exc}"
+        )
+        raise typer.Exit(code=4) from None
+    except (GateError, PublishError) as exc:
+        console.print(f"[red]Not publishing:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+
+    counts = ", ".join(f"{n} {kind}" for kind, n in sorted(plan.counts().items()))
+    console.print(f"\n[bold]Approved for Sentinel:[/bold] {len(plan.objects)} objects ({counts})"
+                  f" in {len(plan.batches)} request(s) of up to {BATCH_SIZE}")  # fmt: skip
+    for kind, n in Counter(s["type"] for s in plan.skipped).items():
+        console.print(f"[yellow]Left out:[/yellow] {n} {kind} (the upload API doesn't accept them)")
+    if plan.hunts_not_uploaded:
+        hunts_dir = gate.out_dir / "approved" / "hunts"
+        console.print(
+            f"{plan.hunts_not_uploaded} approved hunt(s) stay in {hunts_dir} for your change "
+            "process; they aren't uploaded."
+        )
+
+    if not apply:
+        folder = write_dry_run(
+            plan, gate.out_dir, settings.sentinel_workspace_id, datetime.now(UTC)
+        )
+        log.append(
+            run_id=run_id, actor=gate.actor, action="publish", decision="dry-run",
+            detail={"target": "sentinel", "objects": len(plan.objects),
+                    "requests": len(plan.batches), "folder": folder.name},
+        )  # fmt: skip
+        first = json.loads((folder / "request-001.json").read_text(encoding="utf-8"))
+        console.print(f"\nPOST {json.loads((folder / 'manifest.json').read_text('utf-8'))['url']}")
+        console.print_json(json.dumps({**first, "stixobjects": first["stixobjects"][:2]}))
+        console.print(
+            f"[dim]…{len(first['stixobjects']) - 2} more objects in request-001.json[/dim]"
+        )
+        console.print(f"\n[bold]Dry run: nothing was sent.[/bold] Requests and manifest: {folder}")
+        console.print("To upload, run again with --apply using the publish identity.")
+        return
+
+    if not settings.sentinel_workspace_id:
+        console.print("[red]--apply needs SENTINEL_WORKSPACE_ID.[/red]")
+        raise typer.Exit(code=2)
+    try:
+        token = token_provider(settings, use_az_login)
+        endpoint(settings.sentinel_workspace_id)
+    except PublishError as exc:
+        console.print(f"[red]Not publishing:[/red] {exc}")
+        raise typer.Exit(code=2) from None
+    if not yes and not typer.confirm(
+        f"Upload {len(plan.objects)} objects in {len(plan.batches)} request(s) to workspace "
+        f"{settings.sentinel_workspace_id}?",
+        default=False,
+    ):
+        raise typer.Exit(code=1)
+
+    def record(result: BatchResult) -> None:
+        log.append(
+            run_id=run_id, actor=gate.actor, action="publish_batch",
+            decision="sent" if not result.failed else "partly rejected",
+            detail={"target": "sentinel", "batch": result.index, "status": result.status,
+                    "attempts": result.attempts, "objects": result.object_ids,
+                    "failed": result.failed},
+        )  # fmt: skip
+        mark_published(settings.db_path, run_id, result)
+
+    try:
+        results = send(plan, settings.sentinel_workspace_id, token, on_batch=record)
+    except PublishError as exc:
+        log.append(run_id=run_id, actor=gate.actor, action="publish", decision="failed",
+                   reason=str(exc), detail={"target": "sentinel"})  # fmt: skip
+        console.print(f"[red]Stopped:[/red] {exc}")
+        raise typer.Exit(code=3) from None
+    failed = [f for r in results for f in r.failed]
+    log.append(
+        run_id=run_id, actor=gate.actor, action="publish", decision="applied",
+        detail={"target": "sentinel", "objects": len(plan.objects), "failed": len(failed)},
+    )  # fmt: skip
+    console.print(f"[green]Uploaded {len(plan.objects) - len(failed)} objects[/green]; "
+                  f"{len(failed)} rejected by Sentinel (see the audit log).")  # fmt: skip
 
 
 @app.command(name="eval")

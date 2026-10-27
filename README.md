@@ -4,10 +4,9 @@ A small agentic pipeline that reads a public threat report and turns it into val
 intelligence, an ATT&CK coverage check and draft KQL hunts. A person approves every output
 before it leaves the tool.
 
-> **Status:** `ingest`, `analyse`, `fetch` and `prepatch` work end to end against the real
-> models, and the tests replay those recorded runs offline. The human gate (`review`) and
-> `publish` come next. The full README, with diagram, threat model and evaluation results,
-> comes with milestone M4.
+> **Status:** every stage works end to end: `ingest`, `analyse`, `fetch`, `prepatch`,
+> `review` and `publish` (a dry run by default). The tests replay recorded model runs offline.
+> The evaluation and the full README, with diagram and threat model, come with milestone M4.
 
 ```
 report (local PDF / HTML / text)
@@ -57,8 +56,22 @@ cti-agent ingest reports/aa23-320a.pdf --tlp CLEAR   # stages 1-3: extract, vali
 cti-agent analyse <run_id>                           # stages 4-5: coverage, hunts, review, brief
 cti-agent fetch --since 24h                          # fresh advisories, triaged (no LLM)
 cti-agent prepatch CVE-2024-4577                     # exposure + behaviour hunt until patched
+cti-agent review <run_id>                            # stage 6: approve / reject / edit, audited
+cti-agent audit --run <run_id> --verify              # the decisions, and a hash-chain check
+cti-agent publish <run_id> --target sentinel         # dry run: writes the requests, sends nothing
 cti-agent trace <run_id>                             # tokens, cost and outcome per step
 ```
+
+**The gate.** `review` shows each hunt (with its evidence, the reviewer model's scores and the lint results), then each STIX object.
+- Every decision is tied to the exact content it was made on, through the item hash, and appended to `out/audit.jsonl`. Each line there carries the hash of the line before it, so a changed, removed or reordered line fails `audit --verify`, and `review` and `publish` refuse to run on a broken chain.
+- Editing an item makes its earlier decision stale.
+- A hunt that fails the lint can't be approved until it's edited.
+- Actors, vulnerabilities and attack-patterns can be decided "rest of this type" in one key. Hunts and indicators always get their own look.
+
+**Publishing.** Only approved, unchanged objects go out, and only the types Sentinel's upload API accepts, in batches of 100. Relationships go only when both ends are approved.
+- Without `--apply`, nothing is sent: the requests and a manifest are written to `out/<run>/publish/`.
+- With `--apply`, the upload uses a separate identity that holds the only write role in the design (Microsoft Sentinel Contributor on one workspace). You choose it explicitly: an app registration, or `--use-az-login` to publish as yourself. See `.env.example`.
+- Approved hunts are never uploaded. They stay in `out/<run>/approved/hunts/` for your change process.
 
 Every run writes `out/<run_id>/`:
 - `ingest`: the raw model output, the accepted items with their surrounding source text, `rejected.jsonl` with a reason for each rejection, a validated STIX 2.1 `bundle.json` and `trace.jsonl`.
