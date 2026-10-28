@@ -240,6 +240,8 @@ cti-agent eval                                       # gold set and injection su
 cti-agent trace <run_id>                             # tokens, cost and outcome per step
 ```
 
+[docs/OPERATING.md](docs/OPERATING.md) has every command and option, where each result lands, the STIX you get, and the steps to Sentinel.
+
 To try it without an API key, replay the recorded run:
 
 ```bash
