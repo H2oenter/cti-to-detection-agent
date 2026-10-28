@@ -51,7 +51,12 @@ class Tracer:
     ) -> None:
         cost = (
             self.settings.estimate_cost(
-                model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+                model,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                unpriced_as_dearest=True,
             )
             if model
             else 0.0

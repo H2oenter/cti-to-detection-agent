@@ -11,7 +11,7 @@ from conftest import BAD_ITEMS, FIXTURE_REPORT, FIXTURES, GOOD_ITEMS, FakeModel
 
 from cti_agent.llm.client import RecordingClient, ReplayClient
 from cti_agent.pipeline import IngestBlocked, run_ingest
-from cti_agent.trace import read_trace
+from cti_agent.trace import Tracer, read_trace
 
 
 def test_ingest_end_to_end(settings, attack_index):
@@ -148,3 +148,14 @@ def test_replay_fills_gaps_from_a_fallback(settings, tmp_path, attack_index):
     assert sorted(a.item_hash for a in first.validation.accepted) == sorted(
         a.item_hash for a in second.validation.accepted
     )
+
+
+def test_a_model_with_no_price_is_counted_at_the_dearest_price(settings, tmp_path):
+    """A server-side fallback can answer with a model config.py has no price for. A spend
+    total must not count those calls as free."""
+    tracer = Tracer("r", tmp_path / "trace.jsonl", settings)
+    tracer.record(stage="s", step="x", outcome="ok", model="claude-unlisted",
+                  input_tokens=1_000_000, output_tokens=0)  # fmt: skip
+    dearest = max(p.input_per_mtok for p in settings.model_prices.values())
+    assert read_trace(tmp_path / "trace.jsonl")[0]["est_cost_usd"] == pytest.approx(dearest)
+    assert settings.estimate_cost("claude-unlisted", 1, 1) is None  # estimates stay honest

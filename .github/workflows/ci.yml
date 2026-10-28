@@ -11,12 +11,18 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        # Windows too: the audit-log lock has a Windows branch, and it's where the tool runs.
+        include:
+          - {os: ubuntu-latest, python-version: "3.11"}
+          - {os: ubuntu-latest, python-version: "3.12"}
+          - {os: windows-latest, python-version: "3.12"}
     steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false  # Windows runners would check out CRLF
       - uses: actions/checkout@v7
         with:
           persist-credentials: false  # nothing after checkout needs the token

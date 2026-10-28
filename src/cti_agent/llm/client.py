@@ -145,6 +145,15 @@ class AnthropicClient:
         )
 
 
+def live_client(settings) -> AnthropicClient:
+    """The real API client for a configuration (any object with the two Anthropic settings)."""
+    key = settings.anthropic_api_key
+    return AnthropicClient(
+        api_key=key.get_secret_value() if key else None,
+        workspace_id=settings.anthropic_workspace_id,
+    )
+
+
 def request_key(model: str, system: str, user: str) -> str:
     """Identifies a request for record/replay. Changing a prompt changes the key."""
     payload = canonical_json({"model": model, "system": system, "user": user})

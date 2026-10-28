@@ -98,8 +98,15 @@ class Settings(BaseSettings):
         output_tokens: int,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
+        *,
+        unpriced_as_dearest: bool = False,
     ) -> float | None:
+        """None for a model with no price, or with `unpriced_as_dearest`, the dearest listed
+        price: a spend total must never count an unknown model as free."""
         price = self.model_prices.get(model)
+        if price is None and unpriced_as_dearest and self.model_prices:
+            price = max(self.model_prices.values(),
+                        key=lambda p: (p.output_per_mtok, p.input_per_mtok))  # fmt: skip
         if price is None:
             return None
         # Prompt-cache writes cost 1.25x the input price; reads 0.1x unless the model says.

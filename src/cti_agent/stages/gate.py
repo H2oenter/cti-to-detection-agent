@@ -3,6 +3,10 @@
 Every decision is tied to the exact content it was made on (the item hash) and written
 to the audit log. Approved items are rebuilt into out/<run>/approved/ after each
 decision; publish later checks that what it sends still matches what was approved.
+
+Decisions and edits run under the audit log's lock, against the item as stored at that
+moment: if it changed since the person saw it (an edit in another terminal, or an old
+Slack card), nothing is decided.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from cti_agent.outputs.stix_out import TOOL_IDENTITY
 from cti_agent.stages.reviewer import attention_reasons, second_opinion_reasons
 from cti_agent.stages.store import SCHEMA
 from cti_agent.util.kql_lint import KqlSchema, lint_kql
-from cti_agent.util.normalise import item_hash
+from cti_agent.util.normalise import item_hash, sha256_bytes
 
 # Review order; relationships, reports, identities and markings follow from these.
 STIX_KINDS = ("indicator", "threat-actor", "vulnerability", "attack-pattern")
@@ -54,6 +58,16 @@ EVIDENCE_CODES = {"no_evidence", "evidence_not_given", "technique_mismatch"}
 
 class GateError(Exception):
     pass
+
+
+class StaleItem(GateError):
+    """The item changed after the person saw it."""
+
+
+def listed_digest(items: list[ReviewItem]) -> str:
+    """A fingerprint of a list as it was shown, from each item's ref and content hash."""
+    lines = sorted(f"{i.ref}|{i.hash}" for i in items)
+    return sha256_bytes("\n".join(lines).encode("utf-8"))[:32]
 
 
 @dataclass
@@ -118,6 +132,34 @@ class Gate:
         items.sort(key=lambda i: ORDER[i.kind])
         return items
 
+    def _current(self, item: ReviewItem, expected_hash: str | None = None) -> ReviewItem:
+        """The item as stored now. Raises StaleItem unless it still has the hash the person
+        saw: `expected_hash`, or by default the hash of the copy this gate loaded."""
+        prefix, key = item.ref.split(":", 1)
+        with self._connect() as conn:
+            if prefix == "draft":
+                row = conn.execute(
+                    "SELECT json FROM drafts WHERE run_id = ? AND draft_id = ?", (self.run_id, key)
+                ).fetchone()
+                stored = (
+                    ReviewItem(item.ref, "hunt", hunt=Hunt.model_validate_json(row[0]))
+                    if row
+                    else None
+                )
+            else:
+                row = conn.execute(
+                    "SELECT type, json FROM objects WHERE run_id = ? AND stix_id = ?",
+                    (self.run_id, key),
+                ).fetchone()
+                stored = ReviewItem(item.ref, row[0], stix=json.loads(row[1])) if row else None
+        if stored is None:
+            raise GateError(f"no item {item.ref} in run {self.run_id}")
+        if stored.hash != (expected_hash or item.hash):
+            raise StaleItem(
+                f"{item.ref} changed since it was shown, so nothing was done; look at it again"
+            )
+        return stored
+
     def item(self, ref: str) -> ReviewItem:
         found = next((i for i in self.items if i.ref == ref), None)
         if found is None:
@@ -143,46 +185,82 @@ class Gate:
     # --- decisions -----------------------------------------------------------------------
 
     def decide(
-        self, item: ReviewItem, decision: str, reason: str | None = None, bulk: bool = False
-    ) -> None:
+        self,
+        item: ReviewItem,
+        decision: str,
+        reason: str | None = None,
+        bulk: bool = False,
+        *,
+        expected_hash: str | None = None,
+        only_if_undecided: bool = False,
+    ) -> bool:
+        """Decide on the item as the person saw it. With `only_if_undecided`, an item that
+        someone has already decided is left alone and False comes back, so a second tap on
+        the same button logs nothing."""
         if decision not in ("approve", "reject"):
             raise GateError(f"unknown decision {decision!r}")
         if decision == "reject" and not (reason or "").strip():
             raise GateError("a rejection needs a reason")
-        if decision == "approve" and item.hunt and item.hunt.lint_failed:
-            errors = ", ".join(f.code for f in item.hunt.lint if f.severity == "error")
-            raise GateError(f"{item.ref} has lint errors ({errors}); edit it before approving")
-        clean_approval = decision == "approve" and clean_indicator(item)
-        if bulk and item.kind not in BULK_KINDS and not clean_approval:
-            raise GateError(f"{item.kind} items are reviewed one at a time")
-        self.audit.append(
-            run_id=self.run_id, actor=self.actor, action="review", item_ref=item.ref,
-            item_hash=item.hash, decision=decision, reason=reason, bulk=bulk,
-        )  # fmt: skip
-        self._set_status(item, "approved" if decision == "approve" else "rejected")
-        self.rebuild_approved()
+        with self.audit.locked():
+            item = self._current(item, expected_hash)
+            if only_if_undecided and self.status(item) in ("approved", "rejected"):
+                return False
+            if decision == "approve" and item.hunt and item.hunt.lint_failed:
+                errors = ", ".join(f.code for f in item.hunt.lint if f.severity == "error")
+                raise GateError(f"{item.ref} has lint errors ({errors}); edit it before approving")
+            clean_approval = decision == "approve" and clean_indicator(item)
+            if bulk and item.kind not in BULK_KINDS and not clean_approval:
+                raise GateError(f"{item.kind} items are reviewed one at a time")
+            self.audit.append(
+                run_id=self.run_id, actor=self.actor, action="review", item_ref=item.ref,
+                item_hash=item.hash, decision=decision, reason=reason, bulk=bulk,
+            )  # fmt: skip
+            self._set_status(item, "approved" if decision == "approve" else "rejected")
+            self.rebuild_approved()
+        return True
 
     def clean_indicators(self) -> list[ReviewItem]:
         return [i for i in self.pending() if clean_indicator(i)]
 
-    def approve_clean_indicators(self, listed: list[str]) -> int:
-        """Approve the indicators that passed both checks, as one list. `listed` is the list
-        the person was shown: if the set has changed since, nothing is decided."""
-        targets = self.clean_indicators()
-        if sorted(i.ref for i in targets) != sorted(listed):
-            raise GateError("the indicators that passed both checks changed since they were "
-                            "listed; nothing was approved, so review them again")  # fmt: skip
-        for target in targets:
-            self.decide(target, "approve", bulk=True)
+    def approve_clean_indicators(
+        self, listed: list[str] | None = None, *, digest: str | None = None
+    ) -> int:
+        """Approve the indicators that passed both checks, as one list. `listed` holds the
+        refs the person was shown, or `digest` the listed_digest of that list: if the set or
+        any item in it has changed since, nothing is decided."""
+        with self.audit.locked():
+            self.items = self._load()  # what's stored now, so the loop can't stop halfway
+            targets = self.clean_indicators()
+            if digest is not None:
+                same = listed_digest(targets) == digest
+            else:
+                same = sorted(i.ref for i in targets) == sorted(listed or [])
+            if not same:
+                raise GateError(
+                    "the indicators that passed both checks changed since they were listed; "
+                    "nothing was approved, so review them again"
+                )
+            for target in targets:
+                self.decide(target, "approve", bulk=True)
         return len(targets)
 
-    def decide_rest_of_type(self, item: ReviewItem, decision: str, reason: str | None) -> int:
-        """Apply one decision to this item and every remaining pending item of its type."""
+    def decide_rest_of_type(
+        self, item: ReviewItem, decision: str, reason: str | None, *, digest: str | None = None
+    ) -> int:
+        """Apply one decision to this item and every remaining pending item of its type.
+        With `digest`, only if those items are still the ones the person was shown."""
         if item.kind not in BULK_KINDS:
             raise GateError(f"{item.kind} items are reviewed one at a time")
-        targets = [i for i in self.pending() if i.kind == item.kind]
-        for target in targets:
-            self.decide(target, decision, reason, bulk=True)
+        with self.audit.locked():
+            self.items = self._load()
+            targets = [i for i in self.pending() if i.kind == item.kind]
+            if digest is not None and listed_digest(targets) != digest:
+                raise GateError(
+                    f"the pending {item.kind} items changed since they were listed; "
+                    "nothing was decided, so look at them again"
+                )
+            for target in targets:
+                self.decide(target, decision, reason, bulk=True)
         return len(targets)
 
     def _set_status(self, item: ReviewItem, status: str) -> None:
@@ -198,6 +276,11 @@ class Gate:
     def edit_hunt(self, item: ReviewItem, new_query: str) -> ReviewItem:
         if item.hunt is None:
             raise GateError(f"{item.ref} is not a hunt")
+        with self.audit.locked():
+            self._current(item)  # an edit made elsewhere since isn't silently overwritten
+            return self._edit_hunt(item, new_query)
+
+    def _edit_hunt(self, item: ReviewItem, new_query: str) -> ReviewItem:
         hunt = item.hunt
         if new_query.strip() == hunt.draft.query.strip():
             return item
@@ -237,6 +320,11 @@ class Gate:
     def edit_stix(self, item: ReviewItem, new_json: str) -> ReviewItem:
         if item.stix is None:
             raise GateError(f"{item.ref} is not a STIX object")
+        with self.audit.locked():
+            self._current(item)
+            return self._edit_stix(item, new_json)
+
+    def _edit_stix(self, item: ReviewItem, new_json: str) -> ReviewItem:
         try:
             obj = json.loads(new_json)
         except json.JSONDecodeError as exc:

@@ -10,6 +10,7 @@ import stix2
 from conftest import FIXTURE_REPORT, FIXTURES, ROOT, FakeModel
 from typer.testing import CliRunner
 
+from cti_agent import publishing
 from cti_agent.audit import AuditLog
 from cti_agent.cli import app
 from cti_agent.outputs import sentinel_upload
@@ -133,7 +134,38 @@ def test_dry_run_writes_valid_requests_and_sends_nothing(settings, run_id, monke
     assert manifest["skipped"][0]["type"] == "vulnerability"
 
 
+def test_two_dry_runs_in_the_same_second_get_their_own_folders(settings, run_id):
+    gate = gate_for(settings, run_id)
+    approve_all(gate)
+    now = datetime(2026, 10, 28, 9, 0, tzinfo=UTC)
+    first = write_dry_run(plan_sentinel(gate), gate.out_dir, None, now)
+    second = write_dry_run(plan_sentinel(gate), gate.out_dir, None, now)
+    assert first != second and second.name == first.name + "-2"
+
+
 # --- --apply against a fake API -------------------------------------------------------------
+
+
+def test_an_upload_sends_only_the_plan_that_was_confirmed(settings, run_id, monkeypatch):
+    gate = gate_for(settings, run_id)
+    approve_all(gate, except_kinds=("attack-pattern",))
+    log = gate.audit
+    confirmed = publishing.dry_run(gate, settings, log).digest
+    pattern = next(i for i in gate.items if i.kind == "attack-pattern")
+    gate.decide(pattern, "approve")  # approvals change after the dry run
+    api = FakeSentinel([(200, {}, b"")])
+    monkeypatch.setattr(sentinel_upload, "urllib_post", api)
+    workspace = settings.model_copy(update={"sentinel_workspace_id": WORKSPACE})
+
+    with pytest.raises(PublishError, match="changed since you confirmed"):
+        publishing.upload(gate, workspace, log, lambda: "tok", expected_digest=confirmed)
+    assert api.calls == []
+    fresh = publishing.dry_run(gate, settings, log).digest
+    sent = publishing.upload(gate, workspace, log, lambda: "tok", expected_digest=fresh)
+    assert len(api.calls) == 1 and sent.failed == []
+    assert [r["decision"] for r in log.entries(run_id) if r["action"] == "publish"] == [
+        "dry-run", "dry-run", "applied"
+    ]  # fmt: skip
 
 
 class FakeSentinel:

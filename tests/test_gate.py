@@ -8,7 +8,7 @@ from conftest import FIXTURE_REPORT, FakeAnalyst, FakeModel
 
 from cti_agent.audit import AuditChainBroken, AuditLog
 from cti_agent.pipeline import run_analyse, run_ingest
-from cti_agent.stages.gate import Gate, GateError
+from cti_agent.stages.gate import Gate, GateError, StaleItem, listed_digest
 
 CLEAN_QUERY = """DeviceProcessEvents
 | where Timestamp > ago(7d)
@@ -151,6 +151,56 @@ def test_stix_edit_refuses_bad_changes(indicator_gate, field, value, message):
     item = next(i for i in indicator_gate.items if i.kind == "indicator")
     with pytest.raises(GateError, match=message):
         indicator_gate.edit_stix(item, json.dumps(dict(item.stix, **{field: value})))
+
+
+# --- deciding on what was shown: other terminals, old Slack cards, double taps -------------
+
+
+def reviews(gate):
+    return [r for r in gate.audit.entries(gate.run_id) if r["action"] == "review"]
+
+
+def test_a_copy_loaded_before_an_edit_elsewhere_decides_nothing(gate):
+    item = passing_hunt(gate)
+    other = Gate(gate.settings, gate.run_id, "lee", gate.audit)
+    other.edit_hunt(other.item(item.ref), CLEAN_QUERY)
+    with pytest.raises(StaleItem, match="changed since it was shown"):
+        gate.decide(item, "approve")
+    with pytest.raises(StaleItem):  # nor can the old copy overwrite the edit
+        gate.edit_hunt(item, CLEAN_QUERY + "\n| take 10")
+    assert reviews(gate) == []
+
+
+def passing_hunt(gate):
+    return next(i for i in hunts(gate) if not i.hunt.lint_failed)
+
+
+def test_the_hash_shown_must_still_be_the_stored_one(gate):
+    item = passing_hunt(gate)
+    with pytest.raises(StaleItem):
+        gate.decide(item, "approve", expected_hash="sha256:what-an-old-card-showed")
+    assert gate.decide(item, "approve", expected_hash=item.hash) is True
+    assert reviews(gate)[0]["item_hash"] == item.hash
+
+
+def test_a_second_tap_on_the_same_card_logs_once(gate):
+    item = passing_hunt(gate)
+    assert gate.decide(item, "approve", only_if_undecided=True) is True
+    assert gate.decide(item, "approve", only_if_undecided=True) is False
+    assert gate.decide(item, "reject", "changed my mind", only_if_undecided=True) is False
+    assert [r["decision"] for r in reviews(gate)] == ["approve"]
+
+
+def test_rest_of_type_with_a_digest_needs_the_same_items(gate):
+    patterns = [i for i in gate.items if i.kind == "attack-pattern"]
+    shown = listed_digest(patterns)
+    gate.decide(patterns[3], "reject", reason="not this actor")  # decided meanwhile
+    with pytest.raises(GateError, match="changed since they were listed"):
+        gate.decide_rest_of_type(patterns[0], "approve", None, digest=shown)
+    assert len(reviews(gate)) == 1
+    rest = [i for i in gate.pending() if i.kind == "attack-pattern"]
+    count = gate.decide_rest_of_type(patterns[0], "approve", None, digest=listed_digest(rest))
+    assert count == len(patterns) - 1
 
 
 def test_a_tampered_audit_log_stops_the_gate(gate, settings):

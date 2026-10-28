@@ -3,6 +3,10 @@
 Each line carries the hash of the line before it and a hash of itself, so editing,
 reordering or deleting any earlier line breaks verification. Review and publish refuse
 to start on a broken chain. The JSONL file is the record; SQLite holds a copy for queries.
+
+Reads and writes hold a lock shared across threads and processes: two writers that both
+read the same last hash would fork the chain, and a reader that caught half a line would
+raise a false tamper alarm.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from cti_agent.util.locks import InterProcessLock
 from cti_agent.util.normalise import canonical_json, sha256_bytes
 
 GENESIS = "0" * 64
@@ -28,6 +33,11 @@ def current_actor(explicit: str | None = None) -> str:
     return explicit or os.environ.get("CTI_AGENT_REVIEWER") or getpass.getuser()
 
 
+def audit_log_for(settings) -> AuditLog:
+    """The one audit log for a configuration (any object with out_dir and db_path)."""
+    return AuditLog(settings.out_dir / "audit.jsonl", settings.db_path)
+
+
 def _hash(body: dict) -> str:
     return sha256_bytes(canonical_json(body).encode("utf-8"))
 
@@ -36,16 +46,27 @@ class AuditLog:
     def __init__(self, path: Path, db_path: Path | None = None) -> None:
         self.path = path
         self.db_path = db_path
+        self._lock = InterProcessLock(path.with_name(path.name + ".lock"))
+
+    def locked(self) -> InterProcessLock:
+        """Hold this around a read, decide and write sequence. It is reentrant, so the
+        reads and appends inside take it again freely."""
+        return self._lock
 
     def entries(self, run_id: str | None = None) -> list[dict]:
-        if not self.path.exists():
-            return []
-        with self.path.open(encoding="utf-8") as fh:
-            rows = [json.loads(line) for line in fh if line.strip()]
+        with self._lock:
+            if not self.path.exists():
+                return []
+            with self.path.open(encoding="utf-8") as fh:
+                rows = [json.loads(line) for line in fh if line.strip()]
         return [r for r in rows if run_id is None or r["run_id"] == run_id]
 
     def verify(self) -> None:
         """Raise AuditChainBroken with the first bad line, if any."""
+        with self._lock:
+            self._verify()
+
+    def _verify(self) -> None:
         if not self.path.exists():
             return
         previous = GENESIS
@@ -80,27 +101,28 @@ class AuditLog:
         bulk: bool = False,
         detail: dict | None = None,
     ) -> dict:
-        entries = self.entries()
-        body = {
-            "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
-            "run_id": run_id,
-            "actor": actor,
-            "action": action,
-            "item_ref": item_ref,
-            "item_hash": item_hash,
-            "decision": decision,
-            "reason": reason,
-            "bulk": bulk,
-            "detail": detail or {},
-            "prev_hash": entries[-1]["hash"] if entries else GENESIS,
-        }
-        row = {**body, "hash": _hash(body)}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        self._mirror(row)
+        with self._lock:
+            entries = self.entries()
+            body = {
+                "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
+                "run_id": run_id,
+                "actor": actor,
+                "action": action,
+                "item_ref": item_ref,
+                "item_hash": item_hash,
+                "decision": decision,
+                "reason": reason,
+                "bulk": bulk,
+                "detail": detail or {},
+                "prev_hash": entries[-1]["hash"] if entries else GENESIS,
+            }
+            row = {**body, "hash": _hash(body)}
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            self._mirror(row)
         return row
 
     def latest_decisions(self, run_id: str) -> dict[str, dict]:

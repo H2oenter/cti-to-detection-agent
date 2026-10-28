@@ -137,8 +137,15 @@ def endpoint(workspace_id: str) -> str:
 def write_dry_run(
     plan: PublishPlan, run_dir: Path, workspace_id: str | None, now: datetime
 ) -> Path:
-    folder = run_dir / "publish" / f"{now:%Y%m%dT%H%M%SZ}-sentinel-dry-run"
-    folder.mkdir(parents=True, exist_ok=False)
+    base = run_dir / "publish" / f"{now:%Y%m%dT%H%M%SZ}-sentinel-dry-run"
+    folder, number = base, 1
+    while True:  # a second dry run in the same second (a double tap) gets its own folder
+        try:
+            folder.mkdir(parents=True, exist_ok=False)
+            break
+        except FileExistsError:
+            number += 1
+            folder = base.with_name(f"{base.name}-{number}")
     files = []
     for number, batch in enumerate(plan.batches, start=1):
         path = folder / f"request-{number:03d}.json"

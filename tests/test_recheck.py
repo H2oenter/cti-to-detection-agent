@@ -20,7 +20,7 @@ from cti_agent.models import (
 )
 from cti_agent.pipeline import run_ingest
 from cti_agent.review_ui import run_review
-from cti_agent.stages.gate import Gate, GateError
+from cti_agent.stages.gate import Gate, GateError, listed_digest
 from cti_agent.stages.recheck import BATCH_SIZE, NOT_RUN, UNCLEAR, item_id, recheck
 from cti_agent.trace import Tracer
 from cti_agent.util.normalise import item_hash
@@ -163,6 +163,20 @@ def test_clean_indicators_are_approved_as_the_listed_set(gate):
     assert gate.status(flagged) == "pending"
     with pytest.raises(GateError, match="one at a time"):
         gate.decide(flagged, "approve", bulk=True)
+
+
+def test_a_list_digest_approves_only_the_set_that_was_shown(gate):
+    clean = gate.clean_indicators()
+    shown = listed_digest(clean)
+    other = Gate(gate.settings, gate.run_id, "lee", gate.audit)  # say, a terminal session
+    edited = other.item(clean[0].ref)
+    other.edit_stix(edited, json.dumps(dict(edited.stix, description="seen again")))
+    with pytest.raises(GateError, match="changed since"):
+        gate.approve_clean_indicators(digest=shown)
+    assert not [r for r in gate.audit.entries() if r["action"] == "review"]
+    fresh = Gate(gate.settings, gate.run_id, "sam", gate.audit)
+    still_clean = fresh.clean_indicators()
+    assert fresh.approve_clean_indicators(digest=listed_digest(still_clean)) == len(still_clean)
 
 
 def test_review_offers_the_list_on_a_clean_indicator(gate):

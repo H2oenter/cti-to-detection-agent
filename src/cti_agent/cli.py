@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
-from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -21,8 +20,8 @@ from rich.markdown import Markdown
 from rich.markup import escape
 from rich.table import Table
 
-from cti_agent import __version__
-from cti_agent.audit import AuditChainBroken, AuditLog, current_actor
+from cti_agent import __version__, publishing
+from cti_agent.audit import AuditChainBroken, AuditLog, audit_log_for, current_actor
 from cti_agent.config import Settings
 from cti_agent.evaluation.gold import GoldError
 from cti_agent.evaluation.injection import run_injection_suite
@@ -37,17 +36,15 @@ from cti_agent.llm.client import (
     LLMClient,
     RecordingClient,
     ReplayClient,
+    live_client,
 )
 from cti_agent.models import AnalysisResult, PrepatchResult
 from cti_agent.outputs.sentinel_upload import (
     BATCH_SIZE,
-    BatchResult,
     PublishError,
     endpoint,
     plan_sentinel,
-    send,
     token_provider,
-    write_dry_run,
 )
 from cti_agent.pipeline import (
     AnalyseError,
@@ -59,8 +56,9 @@ from cti_agent.pipeline import (
 )
 from cti_agent.review_ui import run_review
 from cti_agent.stages.gate import Gate, GateError
-from cti_agent.stages.store import has_run_for, mark_published
+from cti_agent.stages.store import has_run_for
 from cti_agent.trace import read_trace
+from cti_agent.util.locks import LockTimeout
 
 
 class TLPLevel(StrEnum):
@@ -139,11 +137,7 @@ def _make_client(settings: Settings, replay: Path | None, record: Path | None) -
 
 
 def _live_client(settings: Settings) -> AnthropicClient:
-    key = settings.anthropic_api_key
-    return AnthropicClient(
-        api_key=key.get_secret_value() if key else None,
-        workspace_id=settings.anthropic_workspace_id,
-    )
+    return live_client(settings)
 
 
 def _replay_note(replay: Path | None, record: Path | None) -> None:
@@ -413,7 +407,7 @@ def _review_scores(hunt) -> str:
 
 
 def _audit_log(settings: Settings) -> AuditLog:
-    return AuditLog(settings.out_dir / "audit.jsonl", settings.db_path)
+    return audit_log_for(settings)
 
 
 @app.command()
@@ -562,14 +556,11 @@ def publish(
         )
 
     if not apply:
-        folder = write_dry_run(
-            plan, gate.out_dir, settings.sentinel_workspace_id, datetime.now(UTC)
-        )
-        log.append(
-            run_id=run_id, actor=gate.actor, action="publish", decision="dry-run",
-            detail={"target": "sentinel", "objects": len(plan.objects),
-                    "requests": len(plan.batches), "folder": folder.name},
-        )  # fmt: skip
+        try:
+            folder = publishing.dry_run(gate, settings, log).folder
+        except PublishError as exc:
+            console.print(f"[red]Not publishing:[/red] {escape(str(exc))}")
+            raise typer.Exit(code=2) from None
         first = json.loads((folder / "request-001.json").read_text(encoding="utf-8"))
         console.print(f"\nPOST {json.loads((folder / 'manifest.json').read_text('utf-8'))['url']}")
         console.print_json(json.dumps({**first, "stixobjects": first["stixobjects"][:2]}))
@@ -596,28 +587,17 @@ def publish(
     ):
         raise typer.Exit(code=1)
 
-    def record(result: BatchResult) -> None:
-        log.append(
-            run_id=run_id, actor=gate.actor, action="publish_batch",
-            decision="sent" if not result.failed else "partly rejected",
-            detail={"target": "sentinel", "batch": result.index, "status": result.status,
-                    "attempts": result.attempts, "objects": result.object_ids,
-                    "failed": result.failed},
-        )  # fmt: skip
-        mark_published(settings.db_path, run_id, result)
-
     try:
-        results = send(plan, settings.sentinel_workspace_id, token, on_batch=record)
+        uploaded = publishing.upload(
+            gate, settings, log, token, expected_digest=publishing.plan_digest(plan)
+        )
+    except LockTimeout:
+        console.print("[red]Not publishing:[/red] another upload of this run is in progress.")
+        raise typer.Exit(code=2) from None
     except PublishError as exc:
-        log.append(run_id=run_id, actor=gate.actor, action="publish", decision="failed",
-                   reason=str(exc), detail={"target": "sentinel"})  # fmt: skip
         console.print(f"[red]Stopped:[/red] {escape(str(exc))}")
         raise typer.Exit(code=3) from None
-    failed = [f for r in results for f in r.failed]
-    log.append(
-        run_id=run_id, actor=gate.actor, action="publish", decision="applied",
-        detail={"target": "sentinel", "objects": len(plan.objects), "failed": len(failed)},
-    )  # fmt: skip
+    failed = uploaded.failed
     console.print(f"[green]Uploaded {len(plan.objects) - len(failed)} objects[/green]; "
                   f"{len(failed)} rejected by Sentinel (see the audit log).")  # fmt: skip
 

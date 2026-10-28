@@ -23,6 +23,7 @@ reports/*.pdf
 reports/*.html
 reports/*-stix.json
 reports/inbox/
+reports/slack/
 
 # Run outputs
 out/
