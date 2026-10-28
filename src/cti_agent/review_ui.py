@@ -10,6 +10,7 @@ from collections import Counter
 from collections.abc import Callable
 
 from rich.console import Console, Group
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -59,7 +60,7 @@ def run_review(
                     console.print(f"[bold]{done}[/bold] indicators: approved (logged one by one)")
                     position += 1
                 except GateError as exc:
-                    console.print(f"[red]{exc}[/red]")
+                    console.print(f"[red]{escape(str(exc))}[/red]")
             continue
         try:
             if key == "q":
@@ -85,7 +86,7 @@ def run_review(
                 continue  # show the edited item again before deciding
             position += 1
         except GateError as exc:
-            console.print(f"[red]{exc}[/red]")
+            console.print(f"[red]{escape(str(exc))}[/red]")
     return counts
 
 

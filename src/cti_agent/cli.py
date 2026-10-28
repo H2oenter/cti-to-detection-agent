@@ -18,6 +18,7 @@ import click
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.table import Table
 
 from cti_agent import __version__
@@ -112,13 +113,13 @@ def ingest(
     try:
         result = run_ingest(path, tlp.value, settings, client)
     except IngestBlocked as exc:
-        console.print(f"[red]Blocked:[/red] {exc}")
+        console.print(f"[red]Blocked:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
     except (InputError, FileNotFoundError, FixtureMissing) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
     except FatalLLMError as exc:
-        console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
+        console.print(f"[red]Model call failed, run stopped:[/red] {escape(str(exc))}")
         raise typer.Exit(code=3) from None
     _print_ingest(result)
     _replay_note(replay, record)
@@ -282,13 +283,13 @@ def analyse(
     try:
         analysis = run_analyse(run_id, settings, client, force=force)
     except IngestBlocked as exc:
-        console.print(f"[red]Blocked:[/red] {exc}")
+        console.print(f"[red]Blocked:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
     except (AnalyseError, FileNotFoundError, FixtureMissing) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
     except FatalLLMError as exc:
-        console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
+        console.print(f"[red]Model call failed, run stopped:[/red] {escape(str(exc))}")
         raise typer.Exit(code=3) from None
     _print_analysis(analysis, settings.out_dir / run_id)
     _replay_note(replay, record)
@@ -360,10 +361,10 @@ def prepatch(
         try:
             result = run_prepatch(one, settings, client)
         except (AnalyseError, FileNotFoundError, FixtureMissing) as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise typer.Exit(code=2) from None
         except FatalLLMError as exc:
-            console.print(f"[red]Model call failed, run stopped:[/red] {exc}")
+            console.print(f"[red]Model call failed, run stopped:[/red] {escape(str(exc))}")
             raise typer.Exit(code=3) from None
         _print_prepatch(result, settings)
     _replay_note(replay, record)
@@ -438,11 +439,12 @@ def review(
         gate = Gate(settings, run_id, current_actor(reviewer), _audit_log(settings))
     except AuditChainBroken as exc:
         console.print(
-            f"[red]The audit log failed verification, so no decisions can be made:[/red] {exc}"
+            "[red]The audit log failed verification, so no decisions can be made:[/red] "
+            + escape(str(exc))
         )
         raise typer.Exit(code=4) from None
     except GateError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
 
     if item:
@@ -451,7 +453,7 @@ def review(
         try:
             gate.decide(gate.item(item), "approve" if approve else "reject", reason)
         except GateError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise typer.Exit(code=2) from None
         console.print(f"{item}: {'approved' if approve else 'rejected'} by {gate.actor}")
         return
@@ -508,7 +510,7 @@ def audit_(
             "[green]Hash chain verified: no line was changed, removed or reordered.[/green]"
         )
     except AuditChainBroken as exc:
-        console.print(f"[red]Hash chain broken: {exc}[/red]")
+        console.print(f"[red]Hash chain broken: {escape(str(exc))}[/red]")
         if verify:
             raise typer.Exit(code=4) from None
 
@@ -539,11 +541,12 @@ def publish(
         plan = plan_sentinel(gate)
     except AuditChainBroken as exc:
         console.print(
-            f"[red]The audit log failed verification, so nothing is published:[/red] {exc}"
+            "[red]The audit log failed verification, so nothing is published:[/red] "
+            + escape(str(exc))
         )
         raise typer.Exit(code=4) from None
     except (GateError, PublishError) as exc:
-        console.print(f"[red]Not publishing:[/red] {exc}")
+        console.print(f"[red]Not publishing:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
 
     counts = ", ".join(f"{n} {kind}" for kind, n in sorted(plan.counts().items()))
@@ -584,7 +587,7 @@ def publish(
         token = token_provider(settings, use_az_login)
         endpoint(settings.sentinel_workspace_id)
     except PublishError as exc:
-        console.print(f"[red]Not publishing:[/red] {exc}")
+        console.print(f"[red]Not publishing:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
     if not yes and not typer.confirm(
         f"Upload {len(plan.objects)} objects in {len(plan.batches)} request(s) to workspace "
@@ -608,7 +611,7 @@ def publish(
     except PublishError as exc:
         log.append(run_id=run_id, actor=gate.actor, action="publish", decision="failed",
                    reason=str(exc), detail={"target": "sentinel"})  # fmt: skip
-        console.print(f"[red]Stopped:[/red] {exc}")
+        console.print(f"[red]Stopped:[/red] {escape(str(exc))}")
         raise typer.Exit(code=3) from None
     failed = [f for r in results for f in r.failed]
     log.append(
@@ -649,10 +652,10 @@ def eval_(
         if suite in ("injection", "all"):
             injection_result = run_injection_suite(settings, client, injection)
     except (EvalError, GoldError, FixtureMissing, InputError) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=2) from None
     except FatalLLMError as exc:
-        console.print(f"[red]Model call failed, eval stopped:[/red] {exc}")
+        console.print(f"[red]Model call failed, eval stopped:[/red] {escape(str(exc))}")
         raise typer.Exit(code=3) from None
 
     if gold_result:

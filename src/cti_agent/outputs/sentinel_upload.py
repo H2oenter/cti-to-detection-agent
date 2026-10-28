@@ -249,26 +249,34 @@ def urllib_post(url: str, body: bytes, headers: dict) -> tuple[int, dict, bytes]
 
 def token_provider(settings: Settings, use_az_login: bool) -> Callable[[], str]:
     """The publishing identity, chosen explicitly. Never the DefaultAzureCredential chain,
-    which could quietly pick up a broader identity than the one meant for writing."""
-    try:
-        from azure.identity import AzureCliCredential, CertificateCredential, ClientSecretCredential
-    except ImportError as exc:
-        raise PublishError('--apply needs azure-identity: pip install -e ".[azure]"') from exc
+    which could quietly pick up a broader identity than the one meant for writing. Which
+    identity is decided before azure-identity is imported, so a missing choice is reported
+    as that, whatever is installed."""
     tenant, client = settings.publish_azure_tenant_id, settings.publish_azure_client_id
     if use_az_login:
-        credential = AzureCliCredential()
+        kind = "az login"
     elif tenant and client and settings.publish_azure_client_secret:
-        credential = ClientSecretCredential(
-            tenant, client, settings.publish_azure_client_secret.get_secret_value()
-        )
+        kind = "client secret"
     elif tenant and client and settings.publish_azure_certificate_path:
-        credential = CertificateCredential(
-            tenant, client, str(settings.publish_azure_certificate_path)
-        )
+        kind = "certificate"
     else:
         raise PublishError(
             "choose the publishing identity explicitly: set PUBLISH_AZURE_TENANT_ID, "
             "PUBLISH_AZURE_CLIENT_ID and PUBLISH_AZURE_CLIENT_SECRET (or "
             "PUBLISH_AZURE_CERTIFICATE_PATH), or pass --use-az-login to publish as yourself"
+        )
+    try:
+        from azure.identity import AzureCliCredential, CertificateCredential, ClientSecretCredential
+    except ImportError as exc:
+        raise PublishError('--apply needs azure-identity: pip install -e ".[azure]"') from exc
+    if kind == "az login":
+        credential = AzureCliCredential()
+    elif kind == "client secret":
+        credential = ClientSecretCredential(
+            tenant, client, settings.publish_azure_client_secret.get_secret_value()
+        )
+    else:
+        credential = CertificateCredential(
+            tenant, client, str(settings.publish_azure_certificate_path)
         )
     return lambda: credential.get_token(TOKEN_SCOPE).token

@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import sys
 from datetime import UTC, datetime
 
 import pytest
@@ -228,6 +229,22 @@ def test_cli_apply_needs_a_workspace_and_an_explicit_identity(cli_run, monkeypat
         monkeypatch.setenv(key, value)
     result = runner.invoke(app, ["publish", cli_run, "--apply", "--yes", *args])
     assert result.exit_code == 2 and message in result.output
+
+
+def test_without_azure_identity_installed_the_messages_still_guide(cli_run, monkeypatch):
+    """CI installs only the dev extras. A missing identity choice is still reported as that,
+    and the install hint keeps its [azure] (rich used to read it as a style tag)."""
+    monkeypatch.setitem(sys.modules, "azure.identity", None)  # import now fails
+    monkeypatch.setenv("SENTINEL_WORKSPACE_ID", WORKSPACE)
+    unchosen = runner.invoke(app, ["publish", cli_run, "--apply", "--yes"])
+    assert unchosen.exit_code == 2
+    assert "choose the publishing identity explicitly" in unchosen.output
+    for key in ("PUBLISH_AZURE_TENANT_ID", "PUBLISH_AZURE_CLIENT_ID"):
+        monkeypatch.setenv(key, "00000000-0000-0000-0000-000000000000")
+    monkeypatch.setenv("PUBLISH_AZURE_CLIENT_SECRET", "test-secret-not-real")
+    missing = runner.invoke(app, ["publish", cli_run, "--apply", "--yes"])
+    assert missing.exit_code == 2
+    assert 'pip install -e ".[azure]"' in missing.output
 
 
 def test_cli_apply_uploads_audits_and_never_writes_the_token(cli_run, settings, monkeypatch):
