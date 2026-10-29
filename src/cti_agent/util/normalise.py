@@ -39,7 +39,8 @@ _FOLD = {
     **{ord(c): "'" for c in "‘’‚‛′"},
     **{ord(c): '"' for c in "“”„‟″"},
     **{ord(c): "-" for c in "‐‑‒–—―−"},
-    **{ord(c): None for c in "­​‌‍⁠﻿"},
+    # soft hyphen, zero-width space, non-joiner, joiner, word joiner, byte-order mark
+    **dict.fromkeys((0x00AD, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF)),
 }
 
 _WS = re.compile(r"\s+")

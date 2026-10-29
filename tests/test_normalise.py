@@ -21,7 +21,7 @@ def test_refang(defanged, expected):
 
 
 def test_fold_handles_pdf_typography():
-    assert fold("ﬁle “quoted” ‘single’ en–dash soft­hyphen​") == (
+    assert fold("ﬁle “quoted” ‘single’ en–dash soft" + chr(0xAD) + "hyphen" + chr(0x200B)) == (
         "file \"quoted\" 'single' en-dash softhyphen"
     )
 

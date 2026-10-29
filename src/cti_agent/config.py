@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     publish_azure_client_secret: SecretStr | None = None
     publish_azure_certificate_path: Path | None = None
 
+    # cti-agent slack: a bot in one private channel, run from this machine in Socket Mode.
+    slack_bot_token: SecretStr | None = None  # xoxb-…
+    slack_app_token: SecretStr | None = None  # xapp-…, with connections:write
+    slack_channel_id: str | None = None
+    slack_users: str = ""  # who may use it: member IDs and names, "U0123ABC=Samuel,U0456=Lee"
+    slack_approved_for_amber: bool = False  # TLP:AMBER content may be posted in that channel
+    slack_daily_spend_cap_usd: float = 5.0  # all of today's model spend (UTC), any interface
+    slack_upload_dir: Path = Path("reports/slack")
+
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_PRICES))
 
     attack_bundle: Path = Path("data/attack/enterprise-attack.json")

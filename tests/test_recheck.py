@@ -195,3 +195,23 @@ def test_review_offers_the_list_on_a_clean_indicator(gate):
     assert asked[1] == ("Approve these 2 indicators?", ["y", "n"])
     assert "Indicators that passed the validator and the re-check" in out.getvalue()
     assert "A" not in asked[2][1]  # the flagged one: no list approval offered
+
+
+def test_finding_10_the_terminal_list_approval_refuses_an_edit_made_meanwhile(gate):
+    """Another terminal edits one listed indicator between the table and the "y": it stays
+    clean, so a refs-only check would pass. The digest of what was shown doesn't."""
+    other = Gate(gate.settings, gate.run_id, "lee", gate.audit)
+    keys = iter(["A", "y", "q"])
+
+    def ask(prompt, choices):
+        key = next(keys)
+        if key == "y":
+            item = other.item(gate.clean_indicators()[0].ref)
+            other.edit_stix(item, json.dumps(dict(item.stix, description="edited meanwhile")))
+        return key
+
+    out = io.StringIO()
+    counts = run_review(gate, Console(file=out, width=120), ask=ask, ask_text=lambda p: "",
+                        edit=lambda text, ext: None)  # fmt: skip
+    assert counts["approved"] == 0 and "changed since" in out.getvalue()
+    assert not [r for r in gate.audit.entries() if r["action"] == "review"]

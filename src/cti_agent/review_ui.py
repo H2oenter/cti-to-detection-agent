@@ -15,7 +15,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from cti_agent.stages.gate import BULK_KINDS, Gate, GateError, ReviewItem, clean_indicator
+from cti_agent.stages.gate import (
+    BULK_KINDS,
+    Gate,
+    GateError,
+    ReviewItem,
+    clean_indicator,
+    listed_digest,
+)
 
 Ask = Callable[[str, list[str]], str]
 AskText = Callable[[str], str]
@@ -55,7 +62,8 @@ def run_review(
             console.print(indicator_table(clean))
             if ask(f"Approve these {len(clean)} indicators?", ["y", "n"]) == "y":
                 try:
-                    done = gate.approve_clean_indicators([i.ref for i in clean])
+                    # the set and the content shown, so an edit elsewhere stops it
+                    done = gate.approve_clean_indicators(digest=listed_digest(clean))
                     counts["approved"] += done
                     console.print(f"[bold]{done}[/bold] indicators: approved (logged one by one)")
                     position += 1

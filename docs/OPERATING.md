@@ -19,6 +19,8 @@ Every command ends by printing where its results are:
 - runs go to `out\<run id>\`;
 - `fetch` writes to `reports\inbox\<date>\`.
 
+All of this can also run from your phone, through a private Slack channel (section 12).
+
 ## 1. One-off setup
 
 ```powershell
@@ -47,6 +49,7 @@ Other settings go in `.env`. All are optional:
 | `MAX_TOKENS_PER_RUN` | A run stops cleanly before it would use more than this. Default: 300,000. |
 | `ENDPOINT_APPROVED_FOR_AMBER` | Allows TLP:AMBER reports; see `ingest` in section 3. |
 | `SENTINEL_WORKSPACE_ID`, `PUBLISH_AZURE_*` | Only for `publish --apply`; see section 10. |
+| `SLACK_*` | Only for the Slack bot; see section 12. |
 
 ## 2. Daily: new vulnerabilities (the tool fetches them)
 
@@ -358,3 +361,115 @@ Microsoft's documentation:
 | `ingest` and `analyse` | You start them when a report arrives. |
 | `review` | Never: a person decides. |
 | `publish --apply` | You run it, after reading the dry run. |
+
+## 12. Running it from Slack
+
+`cti-agent slack` runs a bot in one private Slack channel. From there you can use the tool on your phone:
+- upload a report;
+- fetch new vulnerabilities;
+- review;
+- publish to Sentinel.
+
+The bot runs on your machine and opens an outbound connection to Slack (Socket Mode), so there's no open port and no public URL. It answers only while `cti-agent slack` is running. If the machine sleeps, Slack says the command failed.
+
+### One-off setup
+
+1. **Install the Slack library:**
+
+   ```powershell
+   pip install -e ".[slack]"
+   ```
+
+2. **Create the Slack app.** At [api.slack.com/apps](https://api.slack.com/apps), choose **Create New App**, then **From a manifest**. Pick your workspace and paste [`docs/slack-app-manifest.json`](slack-app-manifest.json). It asks for the following bot scopes, and no others:
+
+   | Scope | Why |
+   | --- | --- |
+   | `commands` | The `/cti` command. |
+   | `chat:write` | Posting results. |
+   | `files:read` | Downloading the reports you upload. |
+   | `files:write` | Attaching the brief. |
+   | `groups:history` | Seeing uploads in the private channel. |
+   | `groups:read` | Checking at startup that the channel is private. |
+
+3. **Make the app-level token.** Under **Basic Information → App-Level Tokens**, create a token with the `connections:write` scope. It starts `xapp-`.
+4. **Install the app** to the workspace, then copy the **Bot User OAuth Token**. It starts `xoxb-`.
+5. **Create the channel.** Make a private channel, for example `#cti-agent`, and invite the bot: `/invite @cti-agent`. Its ID is at the bottom of the channel's details and starts with `C`.
+6. **Find your member ID.** It's in your Slack profile, under **⋯ → Copy member ID**.
+7. **Add the settings to `.env`:**
+
+   ```
+   SLACK_BOT_TOKEN=xoxb-…
+   SLACK_APP_TOKEN=xapp-…
+   SLACK_CHANNEL_ID=C…
+   SLACK_USERS=U0123ABC=Samuel
+   ```
+
+   For a team, list several members, comma-separated: `U0123ABC=Samuel,U0456DEF=Lee`.
+8. **Check the setup**, then start the bot:
+
+   ```powershell
+   cti-agent slack --check
+   cti-agent slack
+   ```
+
+   The check signs in to Slack and confirms the channel is private, not shared, and has the bot in it. The bot then runs until you press Ctrl+C.
+
+Publishing from Slack also needs everything `publish --apply` needs (section 10): the `[azure]` extra, the app registration in `.env`, and `SENTINEL_WORKSPACE_ID`. Until those are set, Slack stops at the dry run and says what's missing.
+
+### What you send, and what happens
+
+| In the channel | What happens |
+| --- | --- |
+| `/cti help` | Lists the commands; only you see the reply. |
+| `/cti runs` | The last 10 runs, each with a menu: Review, Publish dry run, Audit log. You don't have to type run IDs on a phone. |
+| `/cti fetch` or `/cti fetch 7d` | Fetches and posts the top 10 advisories to hunt, with a **Pre-patch top 5…** button. |
+| `/cti prepatch top 5` | Lists the advisories and what they'll cost. Nothing runs until you tap **Go ahead**. |
+| `/cti prepatch CVE-2024-21762` | One advisory. It's fetched first if it isn't in the inbox. |
+| Upload a report with the comment `ingest tlp:clear` | Downloads, ingests, then analyses it. Posts the counts, the leadership summary and `brief.md`, with **Review** and **Publish dry run** buttons. The TLP is required: `clear`, `green`, `amber` or `amber+strict`. |
+| `/cti analyse <run>` | Analyses a run again, if the spend cap or an error stopped it. |
+| `/cti review <run>` | Posts review cards in a thread (see below). |
+| `/cti publish <run>` | A dry run: counts, what's left out, and where the requests are. **Publish N…** then opens a confirm that names the count and the workspace. |
+| `/cti audit <run>` | The run's last 25 decisions and the chain check. |
+
+Long jobs post one message that moves from Queued to Running to Done. When a job finishes, the bot also replies with an @-mention, so your phone gets a notification.
+
+### Reviewing on a phone
+
+- **Hunts:** one card each, with the scores from both reviewers, the evidence, the start of the query (the whole query is attached when it's long), and **Approve** and **Reject…** buttons. A hunt that fails the lint has no Approve button: edit it in the terminal.
+- **Indicators that passed both checks:** one list, with **Approve these N** behind a confirm, and **One by one**.
+- **Flagged indicators:** one card each.
+- **Actors, vulnerabilities and attack patterns:** one list each, with **Approve all N**, **Reject all N…** and **One by one**.
+- **Reject** opens a box for the reason, which goes in the audit log.
+
+Nothing is approved unseen:
+- **A list or query too long for a card** is posted whole as a file just above it.
+- **If the file can't be posted,** or a card's warnings are too long to show whole, the card has no Approve button. Review that item in the terminal.
+
+Each decision is logged as `slack:<member ID> (<name>)`. Some taps change nothing:
+- **The item changed after the card was posted** (for example, someone edited it in the terminal): the tap decides nothing and says so. Run `/cti review` again.
+- **A second tap:** it logs nothing.
+- **A list that changed since it was posted:** it decides nothing.
+- **A run Slack may no longer show** (for example, `SLACK_APPROVED_FOR_AMBER` was turned off): the tap decides nothing and points you to the terminal.
+
+A job that failed or stopped, such as an upload Sentinel refused, can be started again with the same button once the cause is fixed. A job that finished says so instead of running twice.
+
+### What Slack never sees, and what stays in the terminal
+
+- **Live indicators:** values are defanged (`104[.]26[.]2[.]223`, `hxxps://`), and link previews are off.
+- **Report content beyond its TLP:**
+
+  | TLP | What Slack sees |
+  | --- | --- |
+  | CLEAR, GREEN | Content. |
+  | AMBER | Refused, unless `SLACK_APPROVED_FOR_AMBER=true` says this channel is approved for it. |
+  | AMBER+STRICT | Counts only. |
+  | RED | Refused before download, and the bot asks you to delete the file from Slack. |
+
+- **What only the terminal can do:**
+  - edit a hunt or an object;
+  - change a decision (`review --all`);
+  - publish with `--use-az-login`;
+  - review a run whose content Slack can't show.
+- **Spend:** the bot won't start a job that would take today's model spend (UTC, across every interface) past `SLACK_DAILY_SPEND_CAP_USD`, which defaults to $5.
+
+The bot hasn't yet been run against a live Slack workspace. Its logic is tested end to end against a fake Slack, and its Slack wiring offline.

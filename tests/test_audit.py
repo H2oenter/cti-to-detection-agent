@@ -113,7 +113,9 @@ class NoLock:
 
 
 def test_without_the_lock_two_writers_fork_the_chain(tmp_path, monkeypatch):
-    """The race the lock exists for, made certain: both writers read before either writes."""
+    """The race the lock exists for, made certain: both writers read before either writes.
+    Then either both lines chain onto the same one (a fork), or, where appends aren't atomic
+    as on Windows, one line overwrites the other (a lost decision). Never two good lines."""
     log = AuditLog(tmp_path / "audit.jsonl")
     log._lock = NoLock()
     read, both_read = AuditLog.entries, threading.Barrier(2)
@@ -125,8 +127,11 @@ def test_without_the_lock_two_writers_fork_the_chain(tmp_path, monkeypatch):
 
     monkeypatch.setattr(AuditLog, "entries", entries)
     in_threads(lambda n: append_many(log, f"t{n}", 1), 2)
-    with pytest.raises(AuditChainBroken, match="doesn't follow"):
+    try:
         log.verify()
+    except AuditChainBroken:
+        return  # forked, or torn into a line that isn't JSON
+    assert len(log.path.read_text(encoding="utf-8").splitlines()) < 2  # one write was lost
 
 
 def test_with_the_lock_the_same_race_keeps_one_chain(tmp_path, monkeypatch):

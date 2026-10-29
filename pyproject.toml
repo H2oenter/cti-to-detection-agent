@@ -31,6 +31,8 @@ dev = ["pytest>=8.2", "ruff>=0.6"]
 azure = ["azure-identity>=1.17", "azure-monitor-query>=1.4"]
 # Push to a lab TIP (stretch goal).
 tip = ["pymisp>=2.4.190", "pycti>=6.0"]
+# cti-agent slack: run the tool from a private Slack channel (Socket Mode).
+slack = ["slack_bolt>=1.30"]
 
 [project.scripts]
 cti-agent = "cti_agent.cli:app"

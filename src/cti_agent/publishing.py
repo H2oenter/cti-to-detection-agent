@@ -8,6 +8,7 @@ upload of a run can be in progress, from any process.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,6 +28,8 @@ from cti_agent.stages.gate import Gate
 from cti_agent.stages.store import mark_published
 from cti_agent.util.locks import InterProcessLock
 from cti_agent.util.normalise import canonical_json, sha256_bytes
+
+logger = logging.getLogger(__name__)
 
 
 def plan_digest(plan: PublishPlan) -> str:
@@ -95,7 +98,10 @@ def upload(
                         "failed": result.failed},
             )  # fmt: skip
             mark_published(settings.db_path, gate.run_id, result)
-            on_batch(result)
+            try:  # a progress report; it must never stop the upload or skip its records
+                on_batch(result)
+            except Exception:
+                logger.warning("reporting batch %s failed", result.index, exc_info=True)
 
         try:
             results = send(

@@ -1,7 +1,8 @@
 """cti-agent: the command-line entry point.
 
-Every command is read-only except `publish --apply`, which is the only path that
-sends data anywhere (design rule 5).
+Every command is read-only except two narrow senders (design rule 5): `publish --apply`,
+the only path that sends intelligence anywhere, and `slack`, which posts to one private
+channel only what each run's TLP allows (design rule 11).
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from cti_agent.outputs.sentinel_upload import (
     plan_sentinel,
     token_provider,
 )
+from cti_agent.outputs.summary import lint_label, review_scores
 from cti_agent.pipeline import (
     AnalyseError,
     IngestBlocked,
@@ -300,13 +302,9 @@ def _print_analysis(analysis: AnalysisResult, out_dir: Path) -> None:
     for col in ("Technique", "Title", "Lint", "Review F/K/A/C (1st, 2nd)", "Attention"):
         table.add_column(col, overflow="fold")
     for h in analysis.hunts:
-        errors = [f.code for f in h.lint if f.severity == "error"]
-        warnings = [f.code for f in h.lint if f.severity == "warning"]
-        lint = (
-            ", ".join(errors) if errors else (f"ok ({', '.join(warnings)})" if warnings else "ok")
-        )
+        lint = lint_label(h)
         flag = "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else ""
-        table.add_row(h.technique_id, h.draft.title, lint, _review_scores(h), flag)
+        table.add_row(h.technique_id, h.draft.title, lint, review_scores(h), flag)
     console.print(table)
     if analysis.not_drafted:
         console.print(f"Gaps not drafted this run: {', '.join(analysis.not_drafted)}")
@@ -384,7 +382,7 @@ def _print_prepatch(result: PrepatchResult, settings: Settings) -> None:
             h.draft.title,
             h.model,
             ", ".join(errors) or "ok",
-            _review_scores(h) if h.review or h.second_review else "n/a (code)",
+            review_scores(h) if h.review or h.second_review else "n/a (code)",
             "[red]" + "; ".join(h.attention_reasons) + "[/red]" if h.needs_attention else "",
         )
     console.print(table)
@@ -394,16 +392,6 @@ def _print_prepatch(result: PrepatchResult, settings: Settings) -> None:
     console.print(f"[bold]{result.retire_when}[/bold]")
     out_dir = settings.out_dir / result.run_id
     console.print(f"Brief: {out_dir / 'brief.md'}   Hunts: {out_dir / 'hunts'}")
-
-
-def _review_scores(hunt) -> str:
-    def one(r, outcome):
-        return f"{r.faithful}/{r.kql_correct}/{r.actionable}/{r.calibrated}" if r else outcome
-
-    first = one(hunt.review, hunt.review_outcome)
-    if hunt.second_review_outcome is None:
-        return first
-    return f"{first}, {one(hunt.second_review, hunt.second_review_outcome)}"
 
 
 def _audit_log(settings: Settings) -> AuditLog:
@@ -707,3 +695,35 @@ def trace(run_id: str) -> None:
     console.print(table)
     budget = rows[-1]["budget"] if rows else 0
     console.print(f"Budget used: {total_in + total_out:,} of {budget:,} tokens")
+
+
+@app.command()
+def slack(
+    check: Annotated[
+        bool, typer.Option("--check", help="Check the settings and the channel, then exit.")
+    ] = False,
+) -> None:
+    """Run the Slack bot: the tool from one private Slack channel, until Ctrl+C."""
+    from cti_agent.slack.policy import config_problems
+
+    settings = Settings()
+    if problems := config_problems(settings):
+        for problem in problems:
+            console.print(f"[red]Not starting:[/red] {escape(problem)}")
+        console.print("The settings are in .env; docs/OPERATING.md has the one-off Slack setup.")
+        raise typer.Exit(code=2)
+    try:
+        from cti_agent.slack import app as slack_app
+        from cti_agent.slack.logs import configure_logging
+    except ImportError:
+        hint = escape('pip install -e ".[slack]"')
+        console.print(f"[red]The Slack bot needs the Slack library:[/red] {hint}")
+        raise typer.Exit(code=2) from None
+    configure_logging()
+    try:
+        where = slack_app.run(settings, check_only=check)
+    except slack_app.SetupError as exc:
+        console.print(f"[red]Not starting:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=2) from None
+    console.print(f"[green]Settings and channel check out:[/green] {escape(where)}"
+                  if check else "Stopped.")  # fmt: skip
