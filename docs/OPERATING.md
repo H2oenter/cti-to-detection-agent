@@ -191,6 +191,7 @@ To open the files:
 **After `review`**:
 - `out\<run id>\approved\stix-bundle.json`: only what you approved, plus the relationships between approved objects.
 - `out\<run id>\approved\hunts\*.kql`: the approved hunts, ready for your change process.
+- `out\<run id>\approved\sentinel-hunting\*.json`: the same hunts as templates that Sentinel Repositories can deploy (section 10). A TLP:RED run gets none.
 - `out\audit.jsonl`: the decision log for all runs. Each entry is chained to the one before it by its hash.
 
 **After `publish`** (dry run), in `out\<run id>\publish\<time>-sentinel-dry-run\`:
@@ -274,7 +275,7 @@ Indicators expire 90 days after ingest (`valid_until`).
 2. **Run `cti-agent publish <run id>`.** This dry run sends nothing. It prints the counts and the start of the first request, and writes every request body to disk for you to read.
    - **Sent:** the indicators, attack patterns and threat actors you approved, the tool's identity, and the relationships between them. These are the types Sentinel's upload API accepts.
    - **Left out:** vulnerabilities, which the API doesn't accept. The dry run says so, and the manifest lists them.
-   - **Never sent:** the report object, which isn't reviewed, and hunts, which stay in `approved\hunts\` for your change process.
+   - **Never sent:** the report object, which isn't reviewed, and hunts, which stay in `approved\` for your change process (see "Hunts, through Sentinel Repositories" below).
    - **Refused:** anything marked TLP:RED. The whole publish stops.
 
    For SafePay with everything approved, that's 92 objects in one request:
@@ -345,6 +346,33 @@ Indicators expire 90 days after ingest (`valid_until`).
 ### Not yet tried on a live workspace
 
 The upload API is in preview, and `--apply` hasn't been run against a real workspace yet. Its requests, batching and error handling are tested against Microsoft's documented behaviour.
+
+### Hunts, through Sentinel Repositories
+
+The tool never sends a hunt to Sentinel. Each approved hunt is written twice, in `out\<run id>\approved\`:
+- `hunts\<id>.kql`, to paste into Sentinel or Defender advanced hunting;
+- `sentinel-hunting\<id>.json`, an ARM template that Sentinel Repositories can deploy as a hunting query.
+
+Both are rebuilt after every decision, so they always hold exactly what's approved.
+
+The template follows Microsoft's sample for Repositories: one saved search in the "Hunting Queries" category, with a `workspace` parameter that the deployment fills in. In Sentinel's hunting page it shows:
+- **Name:** the hunt's title.
+- **Description:** the TLP, who approved it and when, and the run. Pre-patch hunts add when to retire them.
+- **Tactics and technique:** taken from the run's ATT&CK objects. Pre-patch runs store none, so their hunts show the technique only.
+- **Query:** the approved `.kql` file, under a line that names the TLP and the run. Its comment header keeps the evidence, the expected false positives, both reviews and the item hash, so the audit log entry can be found from Sentinel.
+
+To deploy:
+1. **Connect a repository, once.** In the Defender portal, go to **Microsoft Sentinel** > **Content management** > **Repositories** > **Add new**. Choose your GitHub or Azure DevOps repository and branch, with the content type **Hunting queries**. Creating the connection needs the Owner role on the workspace's resource group.
+2. **Copy the templates in.** Put the run's `sentinel-hunting` files in a folder of their own, such as `Hunting/cti-agent/<run id>/`. Two runs can each have a hunt with the same file name, such as `T1047-coverage-gap.json`.
+3. **Open a pull request.** This is the change process: someone reviews the queries before they merge.
+4. **Merge.** The workflow that Repositories added to your repository deploys what changed. Its log is on the repository's **Actions** tab (GitHub) or **Pipelines** tab (Azure DevOps).
+
+Things to know:
+- **TLP.** Each template carries the run's TLP. A repository holding TLP:AMBER content must be private to your organisation, and TLP:AMBER+STRICT content must stay inside it. A TLP:RED run gets no templates.
+- **An edit replaces the deployed query.** A hunt keeps the same saved-search name within its run, so its re-approved template overwrites the old version when it merges.
+- **Deleting a file doesn't delete the query.** If you reject a hunt after it was deployed, its template leaves `sentinel-hunting\`, but removing the file from the repository leaves the query in Sentinel. Delete it there too.
+- **Edit in the repository, not in Sentinel.** The next deployment overwrites changes made in the portal.
+- **Not yet deployed.** The templates match Microsoft's sample and are tested against that format, but none has been deployed yet, for the same reason as `--apply`: there's no lab workspace.
 
 The first live upload will also show whether Sentinel keeps the `x_cti_agent_` fields in `Data`.
 

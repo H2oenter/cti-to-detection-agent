@@ -40,6 +40,7 @@ from cti_agent.llm.client import (
     live_client,
 )
 from cti_agent.models import AnalysisResult, PrepatchResult
+from cti_agent.outputs.sentinel_hunting import FOLDER as TEMPLATE_FOLDER
 from cti_agent.outputs.sentinel_upload import (
     BATCH_SIZE,
     PublishError,
@@ -537,10 +538,11 @@ def publish(
     for kind, n in Counter(s["type"] for s in plan.skipped).items():
         console.print(f"[yellow]Left out:[/yellow] {n} {kind} (the upload API doesn't accept them)")
     if plan.hunts_not_uploaded:
-        hunts_dir = gate.out_dir / "approved" / "hunts"
+        approved_dir = gate.out_dir / "approved"
         console.print(
-            f"{plan.hunts_not_uploaded} approved hunt(s) stay in {hunts_dir} for your change "
-            "process; they aren't uploaded."
+            f"{plan.hunts_not_uploaded} approved hunt(s) stay in {approved_dir / 'hunts'} for "
+            f"your change process, with templates for Sentinel Repositories in "
+            f"{approved_dir / TEMPLATE_FOLDER}; they aren't uploaded."
         )
 
     if not apply:

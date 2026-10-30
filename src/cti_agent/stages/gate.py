@@ -25,6 +25,8 @@ from cti_agent.audit import AuditLog
 from cti_agent.config import Settings
 from cti_agent.models import Hunt
 from cti_agent.outputs.kql_out import render_kql
+from cti_agent.outputs.sentinel_hunting import FOLDER as TEMPLATE_FOLDER
+from cti_agent.outputs.sentinel_hunting import hunting_template
 from cti_agent.outputs.stix_out import TOOL_IDENTITY
 from cti_agent.stages.reviewer import attention_reasons, second_opinion_reasons
 from cti_agent.stages.store import SCHEMA
@@ -106,6 +108,7 @@ class Gate:
         audit.verify()  # raises AuditChainBroken: never decide on top of a tampered log
         self.schema = KqlSchema.load(settings.kql_schema_file)
         self.items = self._load()
+        self.tlp = self._tlp()
 
     # --- loading -------------------------------------------------------------------------
 
@@ -113,6 +116,11 @@ class Gate:
         conn = sqlite3.connect(self.settings.db_path)
         conn.executescript(SCHEMA)
         return closing(conn)
+
+    def _tlp(self) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT tlp FROM runs WHERE run_id = ?", (self.run_id,)).fetchone()
+        return row[0] if row else None
 
     def _load(self) -> list[ReviewItem]:
         items: list[ReviewItem] = []
@@ -373,14 +381,18 @@ class Gate:
         return [i for i in self.items if self.status(i) == "approved"]
 
     def rebuild_approved(self) -> Path:
-        """out/<run>/approved/ holds exactly what is approved now, and nothing else."""
+        """out/<run>/approved/ holds exactly what is approved now, and nothing else. Each
+        approved hunt is there as a .kql file and, unless the run is TLP:RED, as a template
+        for Sentinel Repositories: a template is made to be shared."""
         root = self.out_dir / "approved"
-        hunts_dir = root / "hunts"
+        hunts_dir, templates_dir = root / "hunts", root / TEMPLATE_FOLDER
         hunts_dir.mkdir(parents=True, exist_ok=True)
-        for old in hunts_dir.glob("*.kql"):
+        for old in [*hunts_dir.glob("*.kql"), *templates_dir.glob("*.json")]:
             old.unlink()
         latest = self.audit.latest_decisions(self.run_id)
         approved = self.approved()
+        run_objects = self.run_objects() if approved else []
+        tactics = _tactics(run_objects)
         for item in approved:
             if item.hunt:
                 decision = latest[item.ref]
@@ -390,12 +402,21 @@ class Gate:
                     1,
                 )
                 (hunts_dir / f"{item.hunt.draft_id}.kql").write_text(text, encoding="utf-8")
+                if self.tlp and self.tlp != "RED":
+                    template = hunting_template(
+                        item.hunt, text, run_id=self.run_id, tlp=self.tlp,
+                        approved_by=decision["actor"], approved_at=decision["ts"],
+                        tactics=tactics.get(item.hunt.technique_id, ()),
+                    )  # fmt: skip
+                    templates_dir.mkdir(exist_ok=True)
+                    (templates_dir / f"{item.hunt.draft_id}.json").write_text(
+                        json.dumps(template, indent=2), encoding="utf-8"
+                    )
 
         objects = [i.stix for i in approved if i.stix]
         bundle_path = root / "stix-bundle.json"
         if objects:
             ids = {o["id"] for o in objects}
-            run_objects = self.run_objects()
             relationships = [
                 o for o in run_objects
                 if o["type"] == "relationship" and o["source_ref"] in ids and o["target_ref"] in ids
@@ -429,3 +450,18 @@ class Gate:
 
 def _bundle_id(run_id: str, ids: set[str]) -> str:
     return f"bundle--{uuid.uuid5(uuid.NAMESPACE_URL, run_id + '|' + '|'.join(sorted(ids)))}"
+
+
+def _tactics(objects: list[dict]) -> dict[str, list[str]]:
+    """Each technique's tactics, from the run's own attack patterns. A pre-patch run stores
+    none, so its templates name the technique alone."""
+    found: dict[str, list[str]] = {}
+    for obj in objects:
+        if obj["type"] != "attack-pattern":
+            continue
+        for ref in obj.get("external_references", []):
+            if ref.get("source_name") == "mitre-attack" and ref.get("external_id"):
+                found[ref["external_id"]] = [
+                    p["phase_name"] for p in obj.get("kill_chain_phases", [])
+                ]
+    return found

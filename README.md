@@ -13,8 +13,9 @@ the report. The six "domains" the model returned are naming patterns the report 
 **Status:** every stage works end to end: `ingest`, `analyse`, `fetch`, `prepatch`, `review`,
 `audit`, `publish` (a dry run by default) and `eval`. Each indicator gets a second check, and
 each hunt a second review, on a different and stronger model. `cti-agent slack` runs it all
-from one private Slack channel, through the same gate. 495 tests replay recorded model runs
-offline; CI needs no API key. The injection suite has run live. Gold-set results are pending
+from one private Slack channel, through the same gate. Approved hunts are also written as
+templates for Sentinel Repositories, to deploy through a reviewed pull request. 504 tests replay
+recorded model runs offline; CI needs no API key. The injection suite has run live. Gold-set results are pending
 the hand labels (see [Evaluation](#evaluation)).
 
 ## How it works
@@ -48,6 +49,7 @@ flowchart TB
     subgraph writer["Separate write identity"]
         publish["publish<br/>dry run unless --apply"]
     end
+    hunts["Approved hunts, as files<br/>.kql and Sentinel Repositories templates"]
     subgraph remote["Optional: one private Slack channel"]
         slackbot["cti-agent slack<br/>fixed commands, read by code only"]
     end
@@ -60,6 +62,7 @@ flowchart TB
     analyst --> lint --> reviewer --> reviewer2 --> gate
     gate --> auditlog
     gate -- "approved and unchanged" --> publish
+    gate -- "approved hunts, for your pull request" --> hunts
     publish --> auditlog
 ```
 
@@ -190,6 +193,7 @@ The live runs found problems the unit tests hadn't. Each fix now has a test:
 | KQL that exfiltrates data (`externaldata`, `http_request`, plugins, cross-workspace) | Deterministic lint over Microsoft's table schema, which reads string literals as KQL does, so code can't hide inside what looks like a string; the tool never runs KQL | `test_errors`, `test_an_obfuscated_verbatim_string_cannot_hide_code`, `test_strings_kql_could_not_parse` in `test_kql_lint.py`; kql-exfil case | The lint is a deny list. A person reads each query before running it. |
 | SSRF and link-following | Content is never fetched; feed URLs come from templates, IDs are checked first, and off-allowlist redirects are refused | `test_fetcher_refuses_anything_off_the_allowlist`, `test_redirects_off_the_allowlist_are_refused`, `test_oversized_responses_are_refused` | A compromised feed could still supply false data. It arrives as untrusted data, never as instructions. |
 | Query injection through feed values | Vendor, product and version values reach a generated query only through a character allowlist, and CVE IDs through their pattern | `test_only_safe_feed_values_go_into_a_query`, `test_unsafe_names_never_reach_the_query` | A product with an unusual name gets no name-based exposure leg; the CVE leg still runs. |
+| A model-written hunt title that ARM runs when a Repositories template deploys (`[listKeys(...)]` would copy a storage key into the query's name) | A title that starts with `[` and ends with `]` is written with `[[`, which ARM keeps as text; the saved search's name is a UUID; a TLP:RED run gets no templates | `test_a_title_in_brackets_reaches_sentinel_as_text`, `test_templates_follow_the_runs_tlp` | The tool only writes the files. A person reviews the pull request, and the repository's pipeline deploys what merges. |
 | A model induced to publish | No tools; `publish` is a CLI command run by a person, with `--apply` | tool-bait case; `test_dry_run_writes_valid_requests_and_sends_nothing` | None found. |
 | Leaked API key or token | `.env` gitignored; recordings and traces hold no prompts or headers; the token is never written; CI has no secrets; the Claude Code deny list blocks reading `.env` | `test_committed_recordings_hold_no_credentials`, `test_cli_apply_uploads_audits_and_never_writes_the_token` | A key on a laptop is as safe as the laptop. |
 | Tampering with approvals or the log | Hash chain; decisions bound to item hashes; review and publish refuse a broken chain; any change after approval blocks publish | `test_changed_line_is_detected`, `test_removed_or_reordered_line_is_detected`, `test_a_change_after_approval_blocks_everything` | Tamper-evident, not tamper-proof: someone who rewrites the whole file and recomputes every hash isn't caught. At work, ship the log to append-only storage. |
@@ -218,6 +222,7 @@ The live runs found problems the unit tests hadn't. Each fix now has a test:
 - KQL is linted, never executed. No hunt has run against a lab workspace.
 - The pre-patch exposure queries use Defender vulnerability-management tables, with names taken from Microsoft's docs. Those names haven't been checked against a live tenant. For products not on the watchlist, software and appliance names are matched approximately, so an empty result doesn't prove a product is absent.
 - Sentinel's STIX objects upload API is in preview, and `publish --apply` hasn't been run against a live workspace. The request format, batching, 429 handling and per-object errors are tested against the documented behaviour.
+- The hunting-query templates for Sentinel Repositories follow Microsoft's sample, but none has been deployed yet, for the same reason.
 - Three reports is a small gold set, and the AA23-320A labels were made after seeing the tool's output.
 - The Slack bot has had one day of live use from a phone: fetch, pre-patch, review and an uploaded report. Publishing from Slack has only gone as far as the dry run, with no Sentinel workspace to upload to. The bot answers only while `cti-agent slack` is running, and drops queued jobs when it stops.
 
@@ -307,7 +312,7 @@ cti-agent analyse <run_id> --replay tests/fixtures/llm/aa23-320a-analyse
 **Publishing.** Only approved, unchanged objects go out, and only the types Sentinel's upload API accepts, in batches of 100. Relationships go only when both ends are approved.
 - Without `--apply`, nothing is sent: the requests and a manifest are written to `out/<run>/publish/`.
 - With `--apply`, the upload uses a separate identity that holds the only write role in the design (Microsoft Sentinel Contributor on one workspace). You choose it explicitly: an app registration, or `--use-az-login` to publish as yourself. See `.env.example`.
-- Approved hunts are never uploaded. They stay in `out/<run>/approved/hunts/` for your change process.
+- Approved hunts are never uploaded. They stay in `out/<run>/approved/` for your change process, as `.kql` files and as ARM templates in `sentinel-hunting/` that [Sentinel Repositories](https://learn.microsoft.com/en-us/azure/sentinel/ci-cd-custom-content) deploys when a pull request merges. The tool writes those files and holds no right to deploy them. A TLP:RED run gets no templates, and a hunt title in brackets is escaped so that ARM doesn't run it as an expression.
 
 Every run writes `out/<run_id>/`:
 - `ingest`: the raw model output, the accepted items with their surrounding source text, `rejected.jsonl` with a reason for each rejection, `recheck.json` with the re-check's verdict on each indicator, a validated STIX 2.1 `bundle.json` and `trace.jsonl`.

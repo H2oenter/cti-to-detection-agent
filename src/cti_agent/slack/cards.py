@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+from cti_agent.outputs.sentinel_hunting import FOLDER as TEMPLATE_FOLDER
 from cti_agent.outputs.summary import review_scores
 from cti_agent.slack.blocks import MAX_SECTION, actions, button, context, section
 from cti_agent.slack.render import code, escape, fit, mrkdwn
@@ -306,7 +307,8 @@ def dry_run_message(run_id: str, dry, not_ready: str | None) -> tuple[list[dict]
     ]
     if plan.hunts_not_uploaded:
         lines.append(f"{plan.hunts_not_uploaded} approved hunt(s) stay in `approved/hunts/` for "
-                     "your change process; hunts are never uploaded.")  # fmt: skip
+                     f"your change process, with templates for Sentinel Repositories in "
+                     f"`approved/{TEMPLATE_FOLDER}/`; hunts are never uploaded.")  # fmt: skip
     folder = f"out/{escape(run_id)}/publish/{escape(dry.folder.name)}/"
     lines.append(f"The exact requests are in `{folder}`.")
     message = [section("\n".join(lines))]
