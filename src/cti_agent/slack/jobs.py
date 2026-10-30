@@ -75,21 +75,23 @@ def run_job(
               *blocks.job_status(title, "Not started", refusal))  # fmt: skip
         return "Not started"
     _tell(port.update, ctx.channel, ctx.status_ts, *blocks.job_status(title, "Running"))
+    log.info("%s job started for %s", kind, ctx.user_id)
     try:
         outcome, state = work(), "Done"
     except Stopped as exc:
         outcome, state = str(exc), "Stopped"
     except EXPECTED as exc:
         state = "Failed"
+        log.warning("%s job failed: %s: %s", kind, type(exc).__name__, exc)
         if exposure is Exposure.CONTENT:
             outcome = mrkdwn(str(exc), 600)
         else:
-            log.warning("job failed: %s: %s", title, exc)
             outcome = (f"{type(exc).__name__}; the details aren't shown at this run's TLP, "
                        "so they're in the bot's log")  # fmt: skip
     except Exception:
-        log.exception("job failed: %s", title)
+        log.exception("%s job failed unexpectedly", kind)
         outcome, state = "an unexpected error; the bot's log has the details", "Failed"
+    log.info("%s job %s", kind, state.lower())
     note = f"{outcome} · {spend_line(deps.settings, deps.now())}"
     _tell(port.update, ctx.channel, ctx.status_ts, *blocks.job_status(title, state, note))
     _tell(port.post, ctx.channel,

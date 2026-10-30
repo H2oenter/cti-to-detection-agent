@@ -45,8 +45,8 @@ class RecordingBot:
     def on_command(self, body, respond):
         self.calls.append(("command", body["text"]))
 
-    def on_file_share(self, event, team_id):
-        self.calls.append(("upload", event["text"], team_id))
+    def on_message(self, event, team_id):
+        self.calls.append(("message", event.get("subtype"), bool(event.get("files")), team_id))
 
     def on_action(self, body):
         self.calls.append(("action", body["actions"][0]["action_id"]))
@@ -78,12 +78,12 @@ def test_commands_uploads_clicks_and_modals_reach_the_bot(wired):
     base = {"team_id": TEAM, "user_id": "U0SAMUEL1", "channel_id": "C0CHANNEL1"}
     assert dispatch(app, {**base, "command": "/cti", "text": "runs",
                           "response_url": "https://hooks.slack.com/x", "trigger_id": "t"}).status == 200  # noqa: E501  # fmt: skip
-    dispatch(app, {"type": "event_callback", "team_id": TEAM, "event": {
-        "type": "message", "subtype": "file_share", "user": "U0SAMUEL1", "channel": "C0CHANNEL1",
-        "text": "ingest tlp:clear", "ts": "1.2", "files": [{"id": "F0123ABCD"}]}})  # fmt: skip
-    dispatch(app, {"type": "event_callback", "team_id": TEAM, "event": {
-        "type": "message", "user": "U0SAMUEL1", "channel": "C0CHANNEL1", "text": "hi",
-        "ts": "1.3"}})  # an ordinary message: not passed on  # fmt: skip
+    message = {"type": "message", "user": "U0SAMUEL1", "channel": "C0CHANNEL1", "ts": "1.2",
+               "text": "ingest tlp:clear", "files": [{"id": "F0123ABCD"}]}  # fmt: skip
+    for event in (message,  # an upload as Slack sends it now: no subtype
+                  {**message, "subtype": "file_share"},  # as it used to
+                  {**message, "files": [], "text": "hi"}):  # fmt: skip
+        dispatch(app, {"type": "event_callback", "team_id": TEAM, "event": event})
     user = {"id": "U0SAMUEL1", "team_id": TEAM}
     dispatch(app, {"type": "block_actions", "user": user, "team": {"id": TEAM},
                    "channel": {"id": "C0CHANNEL1"}, "trigger_id": "t",
@@ -98,7 +98,9 @@ def test_commands_uploads_clicks_and_modals_reach_the_bot(wired):
     dispatch(app, {"type": "view_submission", "user": user, "team": {"id": TEAM}, "view": view})
     assert bot.calls == [
         ("command", "runs"),
-        ("upload", "ingest tlp:clear", TEAM),
+        ("message", None, True, TEAM),  # every message reaches the bot, which decides
+        ("message", "file_share", True, TEAM),
+        ("message", None, False, TEAM),
         ("action", "cti_approve"),
         ("view", "cti_reject_reason"),
     ]

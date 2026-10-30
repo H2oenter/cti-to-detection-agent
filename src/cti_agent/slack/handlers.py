@@ -144,6 +144,7 @@ class Bot:
                 respond("cti-agent only works in its own private channel.")
             return
         command = parse_command(body.get("text", ""))
+        log.info("/cti %s from %s", type(command).__name__.lower(), user)  # the kind, not the text
         if isinstance(command, Help):
             respond(escape(blocks.USAGE))
         elif isinstance(command, Invalid):
@@ -202,15 +203,24 @@ class Bot:
 
     # --- an uploaded report ----------------------------------------------------------------
 
-    def on_file_share(self, event: dict, team_id: str | None) -> None:
-        if event.get("subtype") != "file_share":
+    # Slack now delivers an upload as an ordinary message that carries `files`; older
+    # workspaces may still mark it with the file_share subtype. Edits, deletions, joins and
+    # bot posts have other subtypes and are never uploads.
+    UPLOAD_SUBTYPES = (None, "file_share")
+
+    def on_message(self, event: dict, team_id: str | None) -> None:
+        """Every message in the channel arrives here; only an upload with `ingest tlp:…`
+        does anything."""
+        if event.get("subtype") not in self.UPLOAD_SUBTYPES or not event.get("files"):
             return
         user, thread = event.get("user", ""), event.get("ts")
         if not self.allowed("upload", user, event.get("channel"), team_id):
             return
         request = parse_upload_comment(event.get("text", ""))
         if request is None:
+            log.info("a file from %s with no `ingest tlp:…` comment: left alone", user)
             return  # a file shared for people, not for the bot
+        log.info("upload from %s, %s", user, getattr(request, "tlp", "comment not understood"))
         if isinstance(request, Invalid):
             self.say(blocks.refused(request.message), thread)
             return
@@ -257,6 +267,7 @@ class Bot:
         for action in body.get("actions") or []:
             action_id = action.get("action_id", "")
             value = action.get("value") or (action.get("selected_option") or {}).get("value")
+            log.info("tap on %s from %s", action_id[:40], user)
             self.on_click(user, action_id, value, message_ts, body.get("trigger_id", ""),
                           thread_ts)  # fmt: skip
 
@@ -312,6 +323,7 @@ class Bot:
         if not self.allowed("modal", user, self.channel, team):
             return
         callback = view.get("callback_id")
+        log.info("submit of %s from %s", str(callback)[:40], user)
         if callback == "cti_reject_reason" and (data := decode(view.get("private_metadata"),
                                                                 "r", "a", "t")):  # fmt: skip
             reason = _reason(view).strip()[:500]

@@ -129,9 +129,13 @@ def file_info(name, data, file_id="F0123ABCD"):
     }}  # fmt: skip
 
 
-def upload_event(comment="ingest tlp:clear", user=USER, channel=CHANNEL, file_id="F0123ABCD"):
-    return {"type": "message", "subtype": "file_share", "user": user, "channel": channel,
-            "ts": UPLOAD_TS, "text": comment, "files": [{"id": file_id}]}  # fmt: skip
+def upload_event(comment="ingest tlp:clear", user=USER, channel=CHANNEL, file_id="F0123ABCD",
+                 subtype=None):  # fmt: skip
+    """An upload as Slack sends it today: an ordinary message carrying `files`, with no
+    subtype. Older deliveries mark it file_share."""
+    event = {"type": "message", "user": user, "channel": channel, "ts": UPLOAD_TS,
+             "text": comment, "files": [{"id": file_id}], "upload": True}  # fmt: skip
+    return {**event, "subtype": subtype} if subtype else event
 
 
 def aa23_bot(slack_settings):
@@ -154,7 +158,7 @@ def run_ids(settings):
 
 def test_an_upload_is_ingested_then_analysed_and_reported(slack_settings):
     bot, slack, opener = aa23_bot(slack_settings)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
 
     status = slack.posts[0]
     assert status["thread_ts"] == UPLOAD_TS and status["text"].startswith(
@@ -184,7 +188,7 @@ def test_an_upload_is_ingested_then_analysed_and_reported(slack_settings):
 def test_live_indicators_never_reach_slack(slack_settings):
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     sent = slack.sent()
     assert "*Analysed*" in sent  # it ran all the way through
     for live in ("198.51.101.7", "helpdesk-reset-fixture.net", "https://"):
@@ -198,7 +202,7 @@ def test_amber_strict_shows_counts_and_nothing_else(slack_settings):
     )
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(settings, Fakes(), file_info("fx-2026-01.txt", data), data)
-    bot.on_file_share(upload_event("ingest tlp:amber+strict"), TEAM)
+    bot.on_message(upload_event("ingest tlp:amber+strict"), TEAM)
     sent = slack.sent()
     assert "Content isn't shown at TLP:AMBER+STRICT" in sent and "*Analysed*" in sent
     assert "Joint Advisory FX-2026-01" not in sent and slack.uploads == []
@@ -214,7 +218,7 @@ def test_amber_strict_shows_counts_and_nothing_else(slack_settings):
 )
 def test_refused_uploads_are_never_downloaded(slack_settings, comment, message):
     bot, slack, opener = make_bot(slack_settings, Fakes())  # no files: file_info would fail
-    bot.on_file_share(upload_event(comment), TEAM)
+    bot.on_message(upload_event(comment), TEAM)
     (reply,) = slack.posts
     assert message in reply["text"] and "delete the file" in reply["text"]
     assert opener.requests == [] and run_ids(bot.deps.settings) == []
@@ -226,23 +230,36 @@ def test_refused_uploads_are_never_downloaded(slack_settings, comment, message):
         upload_event(user="U0STRANGER"),
         upload_event(channel="C0GENERAL1"),
         upload_event(comment="Here's the lunch menu"),
-        {**upload_event(), "subtype": "message_changed"},
+        upload_event(subtype="message_changed"),
+        upload_event(subtype="bot_message"),
+        {**upload_event(), "files": []},  # "ingest tlp:clear" typed with no file attached
     ],
 )
 def test_other_people_places_and_files_are_ignored(slack_settings, event):
     bot, slack, opener = make_bot(slack_settings, Fakes())
-    bot.on_file_share(event, TEAM)
-    bot.on_file_share(upload_event(), "T0OTHER01")  # another workspace
+    bot.on_message(event, TEAM)
+    bot.on_message(upload_event(), "T0OTHER01")  # another workspace
     assert slack.posts == [] and opener.requests == []
+
+
+@pytest.mark.parametrize("subtype", [None, "file_share"])
+def test_an_upload_is_picked_up_whether_or_not_slack_marks_it_file_share(slack_settings, subtype):
+    """Found on the first live run: Slack sent the upload as a plain message with `files`,
+    and a listener for the file_share subtype never saw it."""
+    data = FIXTURE_REPORT.read_bytes()
+    bot, slack, opener = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
+    bot.on_message(upload_event(subtype=subtype), TEAM)
+    assert opener.requests and slack.posts[0]["text"].startswith("Queued: ingest")
+    assert len(run_ids(bot.deps.settings)) == 1
 
 
 def test_a_bad_comment_gets_the_usage_and_one_upload_runs_once(slack_settings):
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event("ingest please"), TEAM)
+    bot.on_message(upload_event("ingest please"), TEAM)
     assert "no default" in slack.posts[0]["text"]
-    bot.on_file_share(upload_event(), TEAM)
-    bot.on_file_share(upload_event(), TEAM)  # Slack delivered it twice
+    bot.on_message(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)  # Slack delivered it twice
     assert sum(p["text"].startswith("Queued:") for p in slack.posts) == 1
 
 
@@ -253,7 +270,7 @@ def test_the_spend_cap_stops_an_upload_before_download(slack_settings):
                                  "est_cost_usd": 4.9}) + "\n", encoding="utf-8")  # fmt: skip
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, opener = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     assert "of the $5.00 cap" in slack.posts[0]["text"] and opener.requests == []
 
 
@@ -275,7 +292,7 @@ def test_help_runs_and_audit(slack_settings):
     bot.on_command(command("make me a sandwich"), said.append)
     assert "I don't know that one" in said[-1]
 
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     (run_id,) = run_ids(bot.deps.settings)
     bot.on_command(command("runs"), said.append)
     runs = slack.posts[-1]
@@ -390,7 +407,7 @@ def reviewed(slack_settings):
     """The fixture advisory ingested and analysed through the bot, then /cti review."""
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     (run_id,) = run_ids(bot.deps.settings)
     start = len(slack.posts)
     bot.on_command(command(f"review {run_id}"), lambda text: None)
@@ -493,7 +510,7 @@ def test_an_amber_run_is_reviewed_in_the_terminal(slack_settings):
     )
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event("ingest tlp:amber+strict"), TEAM)
+    bot.on_message(upload_event("ingest tlp:amber+strict"), TEAM)
     (run_id,) = run_ids(settings)
     bot.on_command(command(f"review {run_id}"), lambda text: None)
     assert "Review it in the terminal" in slack.posts[-1]["text"]
@@ -522,7 +539,7 @@ def approved_run(slack_settings, monkeypatch):
     settings = slack_settings.model_copy(update={"sentinel_workspace_id": WORKSPACE})
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     (run_id,) = run_ids(settings)
     gate = Gate(settings, run_id, "sam", audit_log_for(settings))
     for item in list(gate.items):
@@ -593,7 +610,7 @@ def test_without_an_identity_there_is_no_publish_button(slack_settings):
 
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     (run_id,) = run_ids(slack_settings)
     gate = Gate(slack_settings, run_id, "sam", audit_log_for(slack_settings))
     indicator = next(i for i in gate.items if i.kind == "indicator")
@@ -613,7 +630,7 @@ def test_finding_1_a_list_is_attached_before_its_card_or_offers_no_bulk_approval
     monkeypatch.setattr(cards, "LIST_ROOM", 60)  # the fixture's indicators no longer fit
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(slack_settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     (run_id,) = run_ids(bot.deps.settings)
     bot.on_command(command(f"review {run_id}"), lambda text: None)
     post, _ = find(slack, "cti_approve_clean")
@@ -678,9 +695,9 @@ def test_finding_6_a_slack_hiccup_reading_the_file_can_be_retried(slack_settings
         return real(file_id)
 
     slack.file_info = flaky
-    bot.on_file_share(upload_event(), TEAM)
+    bot.on_message(upload_event(), TEAM)
     assert "Upload it again" in slack.posts[-1]["text"]
-    bot.on_file_share(upload_event(), TEAM)  # Slack delivers it again
+    bot.on_message(upload_event(), TEAM)  # Slack delivers it again
     assert any(p["text"].startswith("Queued: ingest") for p in slack.posts)
     assert len(run_ids(bot.deps.settings)) == 1
 
@@ -712,7 +729,7 @@ def test_finding_8_old_cards_check_the_tlp_again(slack_settings):
     )
     data = FIXTURE_REPORT.read_bytes()
     bot, slack, _ = make_bot(settings, Fakes(), file_info("advisory.txt", data), data)
-    bot.on_file_share(upload_event("ingest tlp:amber"), TEAM)
+    bot.on_message(upload_event("ingest tlp:amber"), TEAM)
     (run_id,) = run_ids(settings)
     bot.on_command(command(f"review {run_id}"), lambda text: None)
     card, approve = a_card(bot, slack, 0)

@@ -101,14 +101,11 @@ def register(app: App, bot: Bot) -> None:
         ack()
         bot.on_command(body, lambda text: respond(text=text, response_type="ephemeral"))
 
-    # Registered before the catch-all below: Bolt runs the first listener that matches.
-    @app.event({"type": "message", "subtype": "file_share"})
-    def on_file_share(event, body):
-        bot.on_file_share(event, body.get("team_id"))
-
     @app.event("message")
-    def on_any_other_message():
-        """Every message in the channel arrives (groups:history); only uploads matter."""
+    def on_message(event, body):
+        """Every message in the channel arrives (groups:history). Slack now sends an upload
+        as an ordinary message with `files`, so the bot, not a subtype filter, decides."""
+        bot.on_message(event, body.get("team_id"))
 
     @app.action(re.compile(r"^cti_"))
     def on_action(ack, body):
