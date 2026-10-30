@@ -433,6 +433,8 @@ Publishing from Slack also needs everything `publish --apply` needs (section 10)
 
 Long jobs post one message that moves from Queued to Running to Done. When a job finishes, the bot also replies with an @-mention, so your phone gets a notification.
 
+Run one copy of the bot at a time. Slack spreads events across every connected copy, so with two running, each would get some of your taps and log only those. A second `cti-agent slack` on the same machine refuses to start.
+
 ### Reviewing on a phone
 
 - **Hunts:** one card each, with the scores from both reviewers, the evidence, the start of the query (the whole query is attached when it's long), and **Approve** and **Reject…** buttons. A hunt that fails the lint has no Approve button: edit it in the terminal.

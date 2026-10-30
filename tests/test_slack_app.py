@@ -4,6 +4,10 @@ installed, as in CI."""
 
 import json
 import socket
+import subprocess
+import sys
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,7 +17,13 @@ from slack_bolt import App, BoltRequest
 from slack_sdk import WebClient
 from slack_sdk.web.slack_response import SlackResponse
 
-from cti_agent.slack.app import WebClientPort, channel_problem, register
+from cti_agent.slack.app import (
+    SetupError,
+    WebClientPort,
+    channel_problem,
+    register,
+    single_instance,
+)
 from cti_agent.slack.blocks import section
 
 TEAM = "T0TEAM001"
@@ -140,3 +150,36 @@ def test_every_post_has_previews_off_and_oversized_ones_send_the_summary(monkeyp
 def test_the_channel_must_be_private_unshared_and_joined(channel, problem):
     found = channel_problem(channel)
     assert found is None if problem is None else problem in found
+
+
+BOT = """
+import sys, time
+from pathlib import Path
+from types import SimpleNamespace
+from cti_agent.slack.app import single_instance
+single_instance(SimpleNamespace(out_dir=Path(sys.argv[1])))
+print("running", flush=True)
+time.sleep(30)
+"""
+
+
+def test_a_second_bot_on_the_same_machine_refuses_to_start(tmp_path):
+    """Found on the live run: a second copy, started in another terminal, quietly took
+    some of the taps, so each copy's log showed only part of what happened."""
+    first = subprocess.Popen([sys.executable, "-c", BOT, str(tmp_path)],
+                             stdout=subprocess.PIPE, text=True)  # fmt: skip
+    try:
+        assert first.stdout.readline().strip() == "running"
+        with pytest.raises(SetupError, match="already running"):
+            single_instance(SimpleNamespace(out_dir=tmp_path))
+    finally:
+        first.kill()
+        first.wait(timeout=30)
+    for _ in range(100):  # the OS frees the lock when the process ends, at times a beat later
+        try:
+            single_instance(SimpleNamespace(out_dir=tmp_path)).release()
+            break
+        except SetupError:
+            time.sleep(0.1)
+    else:
+        pytest.fail("the lock wasn't freed after the first bot ended")

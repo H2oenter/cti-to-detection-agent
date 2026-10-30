@@ -25,6 +25,7 @@ from cti_agent.slack.handlers import Bot
 from cti_agent.slack.jobs import Deps
 from cti_agent.slack.policy import ChannelGuard, channel_problem, config_problems, parse_users
 from cti_agent.slack.worker import Lane
+from cti_agent.util.locks import InterProcessLock, LockTimeout
 
 log = logging.getLogger("cti_agent.slack")
 
@@ -121,11 +122,35 @@ def register(app: App, bot: Bot) -> None:
         bot.on_view(body)
 
 
+def single_instance(settings: Settings) -> InterProcessLock:
+    """Only one bot per machine. Slack spreads events across every open connection, so a
+    second copy would quietly take some of the taps, with its own queue and its own log.
+    The operating system frees the lock when the process ends, however it ends."""
+    lock = InterProcessLock(settings.out_dir / "slack-bot.lock", timeout=0.5)
+    try:
+        lock.acquire()
+    except LockTimeout:
+        raise SetupError(
+            "another `cti-agent slack` is already running on this machine; stop it first, "
+            "or Slack splits the events between the two"
+        ) from None
+    return lock
+
+
 def run(settings: Settings, check_only: bool = False) -> str:
     """Connect and serve until Ctrl+C. With check_only, check the settings and the channel
     and return without serving."""
     if problems := config_problems(settings):
         raise SetupError("; ".join(problems))
+    instance = None if check_only else single_instance(settings)
+    try:
+        return _serve(settings, check_only)
+    finally:
+        if instance is not None:
+            instance.release()
+
+
+def _serve(settings: Settings, check_only: bool) -> str:
     users, _ = parse_users(settings.slack_users)
     try:
         app = App(token=settings.slack_bot_token.get_secret_value())

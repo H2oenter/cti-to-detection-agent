@@ -13,7 +13,7 @@ the report. The six "domains" the model returned are naming patterns the report 
 **Status:** every stage works end to end: `ingest`, `analyse`, `fetch`, `prepatch`, `review`,
 `audit`, `publish` (a dry run by default) and `eval`. Each indicator gets a second check, and
 each hunt a second review, on a different and stronger model. `cti-agent slack` runs it all
-from one private Slack channel, through the same gate. 494 tests replay recorded model runs
+from one private Slack channel, through the same gate. 495 tests replay recorded model runs
 offline; CI needs no API key. The injection suite has run live. Gold-set results are pending
 the hand labels (see [Evaluation](#evaluation)).
 
@@ -143,6 +143,7 @@ The live runs found problems the unit tests hadn't. Each fix now has a test:
 - **A terse advisory gets no invented hunt.** FortiOS CVE-2024-21762 is in KEV, but its advisory names no component or behaviour to look for. The run drafts the two exposure queries and, by design, no behaviour hunt → `test_off_watchlist_gold_case_replayed`.
 - **Two writers could fork the audit chain.** The design review for the Slack bot found that the audit log read its last hash and then appended, with no lock. Two writers at once, such as the bot and a terminal, could both chain onto the same line, and a reader could catch half a line. Either way, review and publish would then refuse to run. Every read, append and decision now holds one lock across threads and processes → `test_without_the_lock_two_writers_fork_the_chain` shows the race; `test_with_the_lock_the_same_race_keeps_one_chain` shows the fix.
 - **Slack sends uploads as plain messages now.** On the first live run, the bot missed an uploaded report. It listened for the `file_share` message subtype, which Slack has phased out: an upload now arrives as an ordinary message carrying `files`. Every message now reaches the bot, which looks for a file with the `ingest tlp:…` comment → `test_an_upload_is_picked_up_whether_or_not_slack_marks_it_file_share`. The bot's log was silent about it, so it now logs each command, upload, tap and job outcome, by ID. The next live upload went through.
+- **Two copies of the bot split the taps.** During the live review, a second `cti-agent slack` was running from another terminal. Slack spreads events across every open connection, so each copy got some of the taps, with its own queue and its own log. Nothing was lost (one audit log, one lock), but neither log told the whole story. A second copy on the same machine now refuses to start → `test_a_second_bot_on_the_same_machine_refuses_to_start`.
 - **What an independent review of the Slack bot found.** It found 11 problems; each now has a test named `test_finding_N_…`. The three serious ones could put an Approve button under content the person hadn't fully seen:
   - a long list cut at Slack's 3,000-character limit;
   - a long query cut on its card;
