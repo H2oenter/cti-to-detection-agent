@@ -36,7 +36,7 @@ class Requester:
 
 
 def parse_users(text: str) -> tuple[dict[str, str], list[str]]:
-    """SLACK_USERS: "U0123ABC=Samuel,U0456DEF=Lee" -> ({id: name}, problems)."""
+    """SLACK_USERS: "U...=YourName,U...=Colleague" -> ({id: name}, problems)."""
     users: dict[str, str] = {}
     problems: list[str] = []
     for entry in filter(None, (e.strip() for e in (text or "").split(","))):

@@ -429,10 +429,10 @@ The bot runs on your machine and opens an outbound connection to Slack (Socket M
    SLACK_BOT_TOKEN=xoxb-…
    SLACK_APP_TOKEN=xapp-…
    SLACK_CHANNEL_ID=C…
-   SLACK_USERS=U0123ABC=Samuel
+   SLACK_USERS=U…=YourName
    ```
 
-   For a team, list several members, comma-separated: `U0123ABC=Samuel,U0456DEF=Lee`.
+   For a team, list several members, comma-separated: `U…=YourName,U…=Colleague`.
 8. **Check the setup**, then start the bot:
 
    ```powershell
